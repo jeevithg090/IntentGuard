@@ -72,32 +72,49 @@ export interface Journal {
   completedAt: number | null;
 }
 
+// The frontend talks to the IntentGuard API at /api/*. On a static deploy
+// (e.g. Vercel) there is no backend, so these calls fail cleanly with a message
+// explaining how to run the full stack, rather than throwing a raw parse error.
+const NO_BACKEND =
+  "No backend connected. This is the static frontend — run the API locally " +
+  "(pnpm --filter @intentguard/api dev) to enable live decisions and the on-chain sabotage proof.";
+
+async function call<T>(path: string, init?: RequestInit): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(path, init);
+  } catch {
+    throw new Error(NO_BACKEND);
+  }
+  const ct = res.headers.get("content-type") ?? "";
+  if (!res.ok || !ct.includes("application/json")) {
+    throw new Error(NO_BACKEND);
+  }
+  return res.json() as Promise<T>;
+}
+
 export async function decide(mandate: string): Promise<Journal> {
-  const res = await fetch("/api/decide", {
+  return call<Journal>("/api/decide", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ mandate }),
   });
-  return res.json();
 }
 
 export async function sabotage(routeId: string, tier: 1 | 2 | 3 | 4): Promise<Journal> {
-  const res = await fetch("/api/sabotage", {
+  return call<Journal>("/api/sabotage", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ routeId, tier }),
   });
-  return res.json();
 }
 
 export async function getJournals(): Promise<Journal[]> {
-  const res = await fetch("/api/journals");
-  return res.json();
+  return call<Journal[]>("/api/journals");
 }
 
 export async function getProvenance(settler: string): Promise<{ cards: ProvenanceCard[] }> {
-  const res = await fetch(`/api/provenance/${settler}`);
-  return res.json();
+  return call<{ cards: ProvenanceCard[] }>(`/api/provenance/${settler}`);
 }
 
 export const TIER_COLORS: Record<number, string> = {

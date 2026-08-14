@@ -196,6 +196,7 @@ export default function App() {
   const [journal, setJournal] = useState<Journal | null>(null);
   const [journals, setJournals] = useState<Journal[]>([]);
   const [sabotageResult, setSabotageResult] = useState<Journal | null>(null);
+  const [uiError, setUiError] = useState<string | null>(null);
 
   const showLive = scope === "prototype";
 
@@ -209,21 +210,29 @@ export default function App() {
 
   const runDecide = async (mandate: string) => {
     setBusy(true);
+    setUiError(null);
     try {
       const j = await decide(mandate);
       setJournal(j);
       setJournals((prev) => [j, ...prev]);
       setTab("evidence");
+    } catch (e) {
+      setUiError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
   };
 
   const runSabotage = async () => {
-    const j = await sabotage("route-c", 4);
-    setSabotageResult(j);
-    setJournals((prev) => [j, ...prev]);
-    setTab("journal");
+    setUiError(null);
+    try {
+      const j = await sabotage("route-c", 4);
+      setSabotageResult(j);
+      setJournals((prev) => [j, ...prev]);
+      setTab("journal");
+    } catch (e) {
+      setUiError(e instanceof Error ? e.message : String(e));
+    }
   };
 
   const tabs: { id: Tab; label: string }[] = [
@@ -260,6 +269,11 @@ export default function App() {
       </header>
       <main className="max-w-5xl mx-auto px-6 py-6 space-y-4">
         <ScopeBanner scope={scope} />
+        {uiError && (
+          <div className="rounded-xl border border-warn/40 bg-warn/5 px-5 py-3 text-sm text-warn">
+            {uiError}
+          </div>
+        )}
         {tab === "mandate" && <MandateView onDecide={runDecide} busy={busy} showLive={showLive} />}
         {tab === "evidence" && (journal ? <EvidenceView journal={journal} showLive={showLive} /> : <p className="text-slate-500 text-sm">Run a decision first.</p>)}
         {tab === "debate" && (journal ? <DebateView journal={journal} showLive={showLive} /> : <p className="text-slate-500 text-sm">Run a decision first.</p>)}
