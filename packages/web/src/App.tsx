@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { decide, sabotage, Journal, TIER_COLORS } from "./api";
 import { Scope, ScopeToggle, ScopeBanner, LiveBadge, RoundTwoTeaser, RoadmapView } from "./scope";
+import { makeDemoJournal, makeDemoSabotage, DEMO_STEPS } from "./demo";
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 type Tab = "mandate" | "evidence" | "debate" | "journal" | "roadmap";
 
@@ -22,7 +25,19 @@ function Panel({ title, children, accent, live }: { title: string; children: Rea
   );
 }
 
-function MandateView({ onDecide, busy, showLive }: { onDecide: (m: string) => void; busy: boolean; showLive: boolean }) {
+function MandateView({
+  onDecide,
+  onDemo,
+  busy,
+  showLive,
+  demoStatus,
+}: {
+  onDecide: (m: string) => void;
+  onDemo: () => void;
+  busy: boolean;
+  showLive: boolean;
+  demoStatus: string | null;
+}) {
   const [mandate, setMandate] = useState("Move $5,000 USDC to the chain offering the best yield, but never use a route with a high-risk verification mechanism.");
   return (
     <div className="space-y-4">
@@ -33,16 +48,39 @@ function MandateView({ onDecide, busy, showLive }: { onDecide: (m: string) => vo
           onChange={(e) => setMandate(e.target.value)}
           placeholder="Describe what the treasury should do, in natural language…"
         />
-        <div className="mt-3 flex items-center gap-3">
+        <div className="mt-3 flex flex-wrap items-center gap-3">
           <button
             className="px-4 py-2 rounded-lg bg-accent text-white text-sm font-semibold disabled:opacity-40"
             disabled={busy}
             onClick={() => onDecide(mandate)}
           >
-            {busy ? "Deciding…" : "Run the pipeline"}
+            {busy && !demoStatus ? "Deciding…" : "Run the pipeline"}
           </button>
+          {/* Demo Mode runs the whole flow with realistic mock data — no backend
+              needed, so the static deploy shows the full product end to end. */}
+          {showLive && (
+            <button
+              className="px-4 py-2 rounded-lg border border-ok/50 text-ok text-sm font-semibold disabled:opacity-40 hover:bg-ok/10"
+              disabled={busy}
+              onClick={onDemo}
+            >
+              {demoStatus ? "Running demo…" : "▶ Demo Mode"}
+            </button>
+          )}
           <p className="text-xs text-slate-500">Score → adversarial review → simulation → on-chain attestation</p>
         </div>
+        {demoStatus && (
+          <div className="mt-3 flex items-center gap-2 text-xs text-ok">
+            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-ok" />
+            {demoStatus}
+          </div>
+        )}
+        {showLive && !demoStatus && (
+          <p className="mt-3 text-xs text-slate-500">
+            No backend? Click <span className="text-ok font-semibold">Demo Mode</span> to walk the full pipeline on realistic
+            mock data — evidence, the Proposer/Red Team debate, fork simulation, and the on-chain sabotage revert.
+          </p>
+        )}
       </Panel>
       <Panel title="Parsed constraints">
         <ul className="grid grid-cols-2 gap-2 text-sm">
@@ -197,6 +235,8 @@ export default function App() {
   const [journals, setJournals] = useState<Journal[]>([]);
   const [sabotageResult, setSabotageResult] = useState<Journal | null>(null);
   const [uiError, setUiError] = useState<string | null>(null);
+  const [demo, setDemo] = useState(false);
+  const [demoStatus, setDemoStatus] = useState<string | null>(null);
 
   const showLive = scope === "prototype";
 
@@ -223,8 +263,37 @@ export default function App() {
     }
   };
 
+  // Demo Mode: walk the full pipeline on realistic mock data, staged so it reads
+  // like a live run. No backend required — works on the static deploy.
+  const runDemo = async () => {
+    setUiError(null);
+    setBusy(true);
+    setDemo(true);
+    try {
+      for (const step of DEMO_STEPS) {
+        setDemoStatus(step);
+        await sleep(650);
+      }
+      const j = makeDemoJournal();
+      setJournal(j);
+      setJournals((prev) => [j, ...prev]);
+      setTab("evidence");
+    } finally {
+      setDemoStatus(null);
+      setBusy(false);
+    }
+  };
+
   const runSabotage = async () => {
     setUiError(null);
+    // In demo mode, use the realistic mock revert instead of the live backend.
+    if (demo) {
+      const j = makeDemoSabotage();
+      setSabotageResult(j);
+      setJournals((prev) => [j, ...prev]);
+      setTab("journal");
+      return;
+    }
     try {
       const j = await sabotage("route-c", 4);
       setSabotageResult(j);
@@ -247,9 +316,16 @@ export default function App() {
     <div className="min-h-screen">
       <header className="border-b border-line bg-panel/60">
         <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between gap-4">
-          <div>
-            <h1 className="text-lg font-bold">IntentGuard</h1>
-            <p className="text-xs text-slate-500">The AI decides. The chain enforces.</p>
+          <div className="flex items-center gap-2">
+            <div>
+              <h1 className="text-lg font-bold">IntentGuard</h1>
+              <p className="text-xs text-slate-500">The AI decides. The chain enforces.</p>
+            </div>
+            {demo && (
+              <span className="rounded border border-ok/40 bg-ok/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-ok">
+                Demo data
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-3">
             <div className="flex gap-1">
@@ -274,7 +350,7 @@ export default function App() {
             {uiError}
           </div>
         )}
-        {tab === "mandate" && <MandateView onDecide={runDecide} busy={busy} showLive={showLive} />}
+        {tab === "mandate" && <MandateView onDecide={runDecide} onDemo={runDemo} busy={busy} showLive={showLive} demoStatus={demoStatus} />}
         {tab === "evidence" && (journal ? <EvidenceView journal={journal} showLive={showLive} /> : <p className="text-slate-500 text-sm">Run a decision first.</p>)}
         {tab === "debate" && (journal ? <DebateView journal={journal} showLive={showLive} /> : <p className="text-slate-500 text-sm">Run a decision first.</p>)}
         {tab === "journal" && <JournalView journals={journals} onSabotage={runSabotage} showLive={showLive} />}
