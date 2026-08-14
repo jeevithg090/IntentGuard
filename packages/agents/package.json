@@ -1,0 +1,14 @@
+{
+  "name": "@intentguard/agents",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "test": "vitest run",
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@intentguard/core": "workspace:*",
+    "zod": "^3.24.1"
+  }
+}

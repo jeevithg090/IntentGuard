@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+.env.local
+cache/
+broadcast/
+cache_forge/
+out/
+.DS_Store
+*.log
