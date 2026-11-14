@@ -1,9 +1,8 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect } from "vitest";
 import { Address, createPublicClient, http, parseAbi } from "viem";
 import { execSync } from "node:child_process";
 import {
   attestationHash,
-  ATTESTATION_TYPEHASH,
   encodeOrder,
   encodeOrderData,
   orderIdOf,
@@ -34,7 +33,14 @@ function deployVault(rpcUrl: string): { usdc: Address; vault: Address } {
 describe("attestor signing", () => {
   it("attestationHash matches the contract's EIP-712 hash", () => {
     const orderId = ("0x" + "ab".repeat(32)) as `0x${string}`;
-    const att = { orderId, riskTier: 2, feeBps: 31, simHash: ("0x" + "cd".repeat(32)) as `0x${string}`, expiry: 1700000000n, nonce: 0n };
+    const att = {
+      orderId,
+      riskTier: 2,
+      feeBps: 31,
+      simHash: ("0x" + "cd".repeat(32)) as `0x${string}`,
+      expiry: 1700000000n,
+      nonce: 0n,
+    };
     const hash = attestationHash(("0x" + "ef".repeat(32)) as `0x${string}`, att);
     expect(hash).toMatch(/^0x[0-9a-f]{64}$/);
   });
@@ -52,8 +58,29 @@ describe("attestor signing", () => {
     };
     const encoded = encodeOrderData(data);
     expect(encoded.startsWith("0x")).toBe(true);
-    const order = { fillDeadline: Math.floor(Date.now() / 1000) + 3600, orderDataType: ("0x" + "11".repeat(32)) as `0x${string}`, orderData: encoded };
+    const order = {
+      fillDeadline: Math.floor(Date.now() / 1000) + 3600,
+      orderDataType: ("0x" + "11".repeat(32)) as `0x${string}`,
+      orderData: encoded,
+    };
     expect(orderIdOf(order)).toMatch(/^0x[0-9a-f]{64}$/);
+  });
+
+  it("encodes the order as a Solidity struct tuple (matches abi.encode(order))", () => {
+    const order = {
+      fillDeadline: 123,
+      orderDataType: ("0x" + "11".repeat(32)) as `0x${string}`,
+      orderData: "0xdeadbeef" as `0x${string}`,
+    };
+    const encoded = encodeOrder(order);
+    // Dynamic struct → leading 0x20 offset word.
+    expect(encoded.slice(2, 66)).toBe("20".padStart(64, "0"));
+    // Cross-check against Foundry's ABI encoder, the same encoding Solidity uses.
+    const expected = execSync(
+      `cast abi-encode "f((uint32,bytes32,bytes))" "(${order.fillDeadline},${order.orderDataType},${order.orderData})"`,
+      { encoding: "utf8" },
+    ).trim();
+    expect(encoded).toBe(expected);
   });
 
   it("signs against a deployed vault (E2E digest match)", async () => {
@@ -79,7 +106,9 @@ describe("attestor signing", () => {
       const client = createPublicClient({ transport: http(rpcUrl) });
       const recovered = await client.readContract({
         address: vault,
-        abi: parseAbi(["function recoverAttestor((bytes32 orderId,uint8 riskTier,uint16 feeBps,bytes32 simHash,uint64 expiry,uint64 nonce) att, bytes sig) view returns (address)"]),
+        abi: parseAbi([
+          "function recoverAttestor((bytes32 orderId,uint8 riskTier,uint16 feeBps,bytes32 simHash,uint64 expiry,uint64 nonce) att, bytes sig) view returns (address)",
+        ]),
         functionName: "recoverAttestor",
         args: [[att.orderId, att.riskTier, att.feeBps, att.simHash, BigInt(att.expiry), att.nonce], att.signature],
       });
