@@ -23,14 +23,11 @@ contract PolicyVaultFuzzTest is PolicyVaultBase {
         _setPolicyForUser(policyTier, 50, 10_000e6);
 
         OnchainCrossChainOrder memory order = defaultOrder(user, NOTIONAL_5K, address(settler));
-        PolicyVault.RiskAttestation memory att =
-            attestationFor(order, attTier, 31, uint64(block.timestamp + 1 hours));
+        PolicyVault.RiskAttestation memory att = attestationFor(order, attTier, 31, uint64(block.timestamp + 1 hours));
         bytes memory sig = signAttestation(att, attestorKey);
 
         if (attTier > policyTier) {
-            vm.expectRevert(
-                abi.encodeWithSelector(PolicyVault.RiskTierExceedsPolicy.selector, attTier, policyTier)
-            );
+            vm.expectRevert(abi.encodeWithSelector(PolicyVault.RiskTierExceedsPolicy.selector, attTier, policyTier));
         }
         vault.openWithPolicy(order, att, sig, proofFor(address(settler)));
     }
@@ -41,8 +38,7 @@ contract PolicyVaultFuzzTest is PolicyVaultBase {
         _setPolicyForUser(4, maxFee, 10_000e6);
 
         OnchainCrossChainOrder memory order = defaultOrder(user, NOTIONAL_5K, address(settler));
-        PolicyVault.RiskAttestation memory att =
-            attestationFor(order, 2, attFee, uint64(block.timestamp + 1 hours));
+        PolicyVault.RiskAttestation memory att = attestationFor(order, 2, attFee, uint64(block.timestamp + 1 hours));
         bytes memory sig = signAttestation(att, attestorKey);
 
         if (attFee > maxFee) {
@@ -63,8 +59,7 @@ contract PolicyVaultFuzzTest is PolicyVaultBase {
         vault.setPolicy(policy);
 
         OnchainCrossChainOrder memory order = defaultOrder(user, amount, address(settler));
-        PolicyVault.RiskAttestation memory att =
-            attestationFor(order, 2, 31, uint64(block.timestamp + 1 hours));
+        PolicyVault.RiskAttestation memory att = attestationFor(order, 2, 31, uint64(block.timestamp + 1 hours));
         bytes memory sig = signAttestation(att, attestorKey);
 
         if (amount > maxNotional) {
@@ -79,8 +74,7 @@ contract PolicyVaultFuzzTest is PolicyVaultBase {
 
         OnchainCrossChainOrder memory order = defaultOrder(user, NOTIONAL_5K, address(settler));
         // expiryDelta == 0 means "expires exactly now", which is stale (>= check)
-        PolicyVault.RiskAttestation memory att =
-            attestationFor(order, 2, 31, uint64(block.timestamp) + expiryDelta);
+        PolicyVault.RiskAttestation memory att = attestationFor(order, 2, 31, uint64(block.timestamp) + expiryDelta);
         bytes memory sig = signAttestation(att, attestorKey);
 
         if (expiryDelta == 0) {
@@ -101,16 +95,13 @@ contract PolicyVaultFuzzTest is PolicyVaultBase {
 
         OnchainCrossChainOrder memory order =
             orderFor(user, NOTIONAL_5K, address(settler), uint32(block.timestamp) + delta);
-        PolicyVault.RiskAttestation memory att =
-            attestationFor(order, 2, 31, uint64(block.timestamp + 1 hours));
+        PolicyVault.RiskAttestation memory att = attestationFor(order, 2, 31, uint64(block.timestamp + 1 hours));
         bytes memory sig = signAttestation(att, attestorKey);
 
         if (delta < policyMin) {
             vm.expectRevert(
                 abi.encodeWithSelector(
-                    PolicyVault.FillDeadlineTooShort.selector,
-                    order.fillDeadline,
-                    uint32(block.timestamp + policyMin)
+                    PolicyVault.FillDeadlineTooShort.selector, order.fillDeadline, uint32(block.timestamp + policyMin)
                 )
             );
         }
@@ -128,8 +119,7 @@ contract PolicyVaultFuzzTest is PolicyVaultBase {
         vault.setPolicy(policy);
 
         OnchainCrossChainOrder memory order = defaultOrder(user, spend, address(settler));
-        PolicyVault.RiskAttestation memory att =
-            attestationFor(order, 2, 31, uint64(block.timestamp + 1 hours));
+        PolicyVault.RiskAttestation memory att = attestationFor(order, 2, 31, uint64(block.timestamp + 1 hours));
         bytes memory sig = signAttestation(att, attestorKey);
 
         if (spend > budget) {
@@ -145,8 +135,7 @@ contract PolicyVaultFuzzTest is PolicyVaultBase {
         _setPolicyForUser(4, 10_000, 1_000_000e6);
 
         OnchainCrossChainOrder memory order = defaultOrder(user, NOTIONAL_5K, address(settler));
-        PolicyVault.RiskAttestation memory att =
-            attestationFor(order, 2, 31, uint64(block.timestamp + 1 hours));
+        PolicyVault.RiskAttestation memory att = attestationFor(order, 2, 31, uint64(block.timestamp + 1 hours));
         bytes memory sig = signAttestation(att, attestorKey);
 
         // Tamper with a single bit of the order after signing.

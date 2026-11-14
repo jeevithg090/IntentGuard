@@ -10,11 +10,7 @@ Base every number you cite on the provided risk profiles and quotes. Acknowledge
 your trade-offs honestly — hiding a weakness will get your proposal killed by
 the Red Team.`;
 
-export function buildProposerContext(input: {
-  quotes: string;
-  profiles: string;
-  policy: string;
-}): string {
+export function buildProposerContext(input: { quotes: string; profiles: string; policy: string }): string {
   return [
     "POLICY:",
     input.policy,

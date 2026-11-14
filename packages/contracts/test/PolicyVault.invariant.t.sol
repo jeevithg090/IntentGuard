@@ -33,8 +33,7 @@ contract PolicyVaultHandler is PolicyVaultBase {
         vm.stopPrank();
 
         OnchainCrossChainOrder memory order = orderFor(user, notional, address(settler), fillDeadline);
-        PolicyVault.RiskAttestation memory att =
-            attestationFor(order, tier, fee, uint64(block.timestamp + 1 hours));
+        PolicyVault.RiskAttestation memory att = attestationFor(order, tier, fee, uint64(block.timestamp + 1 hours));
         bytes memory sig = signAttestation(att, attestorKey);
         bytes32 attId = keccak256(abi.encode(att));
 

@@ -28,11 +28,7 @@ export class AgentMalformedError extends Error {
  * load-bearing — swap the provider without touching the roles.
  */
 export interface ModelClient {
-  generateJson<T>(input: {
-    system: string;
-    user: string;
-    schema: z.ZodType<T>;
-  }): Promise<T>;
+  generateJson<T>(input: { system: string; user: string; schema: z.ZodType<T> }): Promise<T>;
 }
 
 export const parseModelJson = <T>(text: string, schema: z.ZodType<T>): T => {

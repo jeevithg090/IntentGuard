@@ -1,8 +1,16 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { Address, createPublicClient, createWalletClient, custom, http, parseAbi } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
+import { Address } from "viem";
 import { execSync } from "node:child_process";
-import { startAnvilFork, runAssertions, computeSimHash, buildSimulationResult, allPassed, assertBalanceDelta, assertFeeOnTransfer, assertHoneypot, assertApprovalScope } from "../src/index.js";
+import {
+  startAnvilFork,
+  runAssertions,
+  computeSimHash,
+  buildSimulationResult,
+  allPassed,
+  assertFeeOnTransfer,
+  assertHoneypot,
+  assertApprovalScope,
+} from "../src/index.js";
 import type { AnvilFork } from "../src/index.js";
 import type { AssertionContext } from "../src/assertions.js";
 
@@ -12,8 +20,16 @@ import type { AssertionContext } from "../src/assertions.js";
  */
 
 function getCreationBytecode(contract: string, args: string[] = []): string {
-  const encoded = args.length > 0 ? execSync(`cast abi-encode "constructor(${Array(args.length).fill("address").join(",")})" ${args.join(" ")}`, { encoding: "utf8", cwd: "../contracts" }).trim() : "";
-  const bc = execSync(`cd ../contracts && forge inspect src/mocks/${contract}.sol:${contract} bytecode`, { encoding: "utf8" }).trim();
+  const encoded =
+    args.length > 0
+      ? execSync(`cast abi-encode "constructor(${Array(args.length).fill("address").join(",")})" ${args.join(" ")}`, {
+          encoding: "utf8",
+          cwd: "../contracts",
+        }).trim()
+      : "";
+  const bc = execSync(`cd ../contracts && forge inspect src/mocks/${contract}.sol:${contract} bytecode`, {
+    encoding: "utf8",
+  }).trim();
   return bc + encoded.slice(2);
 }
 
@@ -36,7 +52,6 @@ async function deployContract(fork: AnvilFork, contract: string, args: string[] 
   return receipt.contractAddress as Address;
 }
 
-const TEST_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 const DEPLOYER = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 const RECIPIENT = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
 
@@ -55,7 +70,13 @@ describe("simulator assertions (local anvil, real token bytecode)", () => {
     for (const token of [usdc, honeypot, fot]) {
       await fork.client.request({
         method: "eth_sendTransaction",
-        params: [{ from: DEPLOYER, to: token, data: `0x40c10f19${DEPLOYER.slice(2).padStart(64, "0")}${(10n ** 18n).toString(16).padStart(64, "0")}` }],
+        params: [
+          {
+            from: DEPLOYER,
+            to: token,
+            data: `0x40c10f19${DEPLOYER.slice(2).padStart(64, "0")}${(10n ** 18n).toString(16).padStart(64, "0")}`,
+          },
+        ],
       });
     }
   }, 60_000);
@@ -93,7 +114,13 @@ describe("simulator assertions (local anvil, real token bytecode)", () => {
         // Simulate: transfer the promised output to the recipient.
         await c.fork.client.request({
           method: "eth_sendTransaction",
-          params: [{ from: c.from, to: c.destinationToken, data: `0xa9059cbb${c.recipient.slice(2).padStart(64, "0")}${c.expectedOutputTokens.toString(16).padStart(64, "0")}` }],
+          params: [
+            {
+              from: c.from,
+              to: c.destinationToken,
+              data: `0xa9059cbb${c.recipient.slice(2).padStart(64, "0")}${c.expectedOutputTokens.toString(16).padStart(64, "0")}`,
+            },
+          ],
         });
       },
     });
@@ -165,7 +192,9 @@ describe("simulator assertions (local anvil, real token bytecode)", () => {
   });
 
   it("failed simulation blocks attestation (allPassed is the gate)", () => {
-    const res = buildSimulationResult(1n, [{ id: "honeypot", label: "Honeypot", passed: false, observed: "blocklisted" }]);
+    const res = buildSimulationResult(1n, [
+      { id: "honeypot", label: "Honeypot", passed: false, observed: "blocklisted" },
+    ]);
     expect(allPassed(res)).toBe(false);
   });
 });

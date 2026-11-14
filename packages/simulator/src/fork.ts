@@ -1,5 +1,5 @@
 import { spawn, ChildProcess } from "node:child_process";
-import { Address, createPublicClient, createWalletClient, custom, http } from "viem";
+import { Address, createPublicClient, custom } from "viem";
 
 export interface AnvilFork {
   port: number;
@@ -90,7 +90,8 @@ export function snapshotHelpers(client: AnvilFork["client"]) {
     setBalance: (address: Address, amount: bigint) =>
       client.request({ method: "anvil_setBalance", params: [address, `0x${amount.toString(16)}`] }),
     impersonate: (address: Address) => client.request({ method: "anvil_impersonateAccount", params: [address] }),
-    stopImpersonating: (address: Address) => client.request({ method: "anvil_stopImpersonatingAccount", params: [address] }),
+    stopImpersonating: (address: Address) =>
+      client.request({ method: "anvil_stopImpersonatingAccount", params: [address] }),
     increaseTime: (seconds: number) => client.request({ method: "evm_increaseTime", params: [seconds] }),
   };
 }
