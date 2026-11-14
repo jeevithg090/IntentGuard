@@ -120,3 +120,46 @@ describe("core schemas", () => {
     expect(jsonSafe(obj)).not.toContain("1n");
   });
 });
+
+describe("attestation & simulation schemas", () => {
+  const H32 = "0x" + "cd".repeat(32);
+
+  it("accepts 32-byte orderId/simHash and a 65-byte signature", async () => {
+    const { AttestationSchema, SimulationResultSchema } = await import("../src/schemas.js");
+    const att = {
+      orderId: H32,
+      riskTier: 2,
+      feeBps: 31,
+      simHash: H32,
+      expiry: 1_900_000_000,
+      nonce: 0n,
+      signature: "0x" + "11".repeat(65),
+    };
+    expect(AttestationSchema.safeParse(att).success).toBe(true);
+    expect(SimulationResultSchema.safeParse({ blockNumber: 1n, assertions: [], simHash: H32 }).success).toBe(true);
+  });
+
+  it("rejects 20-byte values where a bytes32 is required", async () => {
+    const { AttestationSchema, SimulationResultSchema } = await import("../src/schemas.js");
+    const ADDR20 = "0x" + "ab".repeat(20);
+    expect(SimulationResultSchema.safeParse({ blockNumber: 1n, assertions: [], simHash: ADDR20 }).success).toBe(false);
+    expect(
+      AttestationSchema.safeParse({
+        orderId: ADDR20,
+        riskTier: 2,
+        feeBps: 0,
+        simHash: H32,
+        expiry: 0,
+        nonce: 0n,
+        signature: "0x",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects odd-length or non-hex signatures", async () => {
+    const { HexSchema } = await import("../src/schemas.js");
+    expect(HexSchema.safeParse("0x123").success).toBe(false);
+    expect(HexSchema.safeParse("0xzz").success).toBe(false);
+    expect(HexSchema.safeParse("0x").success).toBe(true);
+  });
+});
