@@ -16,10 +16,7 @@ export interface ScoreRouteInput {
  * contributions — one catastrophic factor is never diluted by benign ones.
  * Fail-closed: any signal with ok=false contributes tier 4.
  */
-export async function scoreRoute(
-  client: PublicClient,
-  input: ScoreRouteInput,
-): Promise<RiskProfile> {
+export async function scoreRoute(client: PublicClient, input: ScoreRouteInput): Promise<RiskProfile> {
   const [upgradeability, liquidity, incidents, solverHistory] = await Promise.all([
     scoreUpgradeability(client, input.settler),
     scoreLiquidity(input.protocolSlug, input.fetchFn),

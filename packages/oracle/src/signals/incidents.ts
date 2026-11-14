@@ -1,6 +1,7 @@
 import { Signal, RiskTier } from "@intentguard/core";
 
 const LLAMA_HACKS = "https://api.llama.fi/hacks";
+const FETCH_TIMEOUT_MS = 10_000;
 
 const fail = (detail: string): Signal => ({
   id: "incidents",
@@ -28,7 +29,7 @@ interface HackEntry {
 /** Match by protocol name, case-insensitive substring; recent = within 180 days. */
 export async function scoreIncidents(slug: string, fetchFn: typeof fetch = fetch): Promise<Signal> {
   try {
-    const res = await fetchFn(LLAMA_HACKS);
+    const res = await fetchFn(LLAMA_HACKS, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
     if (!res.ok) return fail(`DefiLlama hacks API HTTP ${res.status}`);
     const data = (await res.json()) as HackEntry[];
     if (!Array.isArray(data)) return fail("DefiLlama hacks API returned non-array");
