@@ -1,4 +1,4 @@
-import { Address, parseAbi } from "viem";
+import { Address } from "viem";
 import { SimulationAssertion } from "@intentguard/core";
 import { AnvilFork, snapshotHelpers } from "./fork.js";
 
@@ -14,14 +14,6 @@ export interface AssertionContext {
   /** The route's on-fork calls, executed after impersonating `from`. */
   executeRoute?: (ctx: AssertionContext) => Promise<void>;
 }
-
-const ERC20 = parseAbi([
-  "function balanceOf(address) view returns (uint256)",
-  "function transfer(address, uint256) returns (bool)",
-  "function approve(address, uint256) returns (bool)",
-  "function transferFrom(address, address, uint256) returns (bool)",
-  "function allowance(address, address) view returns (uint256)",
-]);
 
 async function balanceOf(ctx: AssertionContext, token: Address, who: Address): Promise<bigint> {
   const res = await ctx.fork.client.call({ to: token, data: encodeBalanceOf(who) });
@@ -40,10 +32,6 @@ function encodeApprove(spender: Address, amount: bigint): `0x${string}` {
   return `0x095ea7b3${spender.slice(2).padStart(64, "0")}${amount.toString(16).padStart(64, "0")}` as `0x${string}`;
 }
 
-function encodeTransferFrom(from: Address, to: Address, amount: bigint): `0x${string}` {
-  return `0x23b872dd${from.slice(2).padStart(64, "0")}${to.slice(2).padStart(64, "0")}${amount.toString(16).padStart(64, "0")}` as `0x${string}`;
-}
-
 async function impersonate(ctx: AssertionContext) {
   const h = snapshotHelpers(ctx.fork.client);
   await h.setBalance(ctx.from, 10n ** 18n);
@@ -51,7 +39,10 @@ async function impersonate(ctx: AssertionContext) {
 }
 
 /** Send a tx and return whether it executed successfully (receipt status 0x1). */
-async function sendTx(client: AnvilFork["client"], tx: { from: Address; to: Address; data: `0x${string}` }): Promise<boolean> {
+async function sendTx(
+  client: AnvilFork["client"],
+  tx: { from: Address; to: Address; data: `0x${string}` },
+): Promise<boolean> {
   const hash = (await client.request({
     method: "eth_sendTransaction",
     params: [tx],
@@ -87,7 +78,12 @@ export async function assertBalanceDelta(ctx: AssertionContext): Promise<Simulat
       observed: `received ${delta} of promised ${ctx.expectedOutputTokens} (shortfall ${delta < ctx.expectedOutputTokens ? ctx.expectedOutputTokens - delta : 0n})`,
     };
   } catch (e) {
-    return { id: "balanceDelta", label: "Destination balance delta", passed: false, observed: `simulation error: ${(e as Error).message}` };
+    return {
+      id: "balanceDelta",
+      label: "Destination balance delta",
+      passed: false,
+      observed: `simulation error: ${(e as Error).message}`,
+    };
   }
 }
 
@@ -116,7 +112,12 @@ export async function assertFeeOnTransfer(ctx: AssertionContext): Promise<Simula
       observed: `sent ${sent}, received ${received}${passed ? "" : ` (shortfall ${sent - received})`}`,
     };
   } catch (e) {
-    return { id: "feeOnTransfer", label: "Fee-on-transfer / rebasing token", passed: false, observed: `simulation error: ${(e as Error).message}` };
+    return {
+      id: "feeOnTransfer",
+      label: "Fee-on-transfer / rebasing token",
+      passed: false,
+      observed: `simulation error: ${(e as Error).message}`,
+    };
   }
 }
 
@@ -129,11 +130,19 @@ export async function assertHoneypot(ctx: AssertionContext): Promise<SimulationA
     const victim = ("0x" + "b0b".padStart(40, "0")) as Address;
     const amount = 10_000n;
     // Transfer in from the impersonated holder.
-    const inboundOk = await sendTx(ctx.fork.client, { from: ctx.from, to: ctx.destinationToken, data: encodeTransfer(victim, amount) });
+    const inboundOk = await sendTx(ctx.fork.client, {
+      from: ctx.from,
+      to: ctx.destinationToken,
+      data: encodeTransfer(victim, amount),
+    });
     // Now try to transfer out FROM the victim.
     await h.impersonate(victim);
     await h.setBalance(victim, 10n ** 18n);
-    const outboundOk = await sendTx(ctx.fork.client, { from: victim, to: ctx.destinationToken, data: encodeTransfer(ctx.from, amount) });
+    const outboundOk = await sendTx(ctx.fork.client, {
+      from: victim,
+      to: ctx.destinationToken,
+      data: encodeTransfer(ctx.from, amount),
+    });
     await h.revert(snap);
     const honeypot = inboundOk && !outboundOk;
     return {
@@ -147,12 +156,19 @@ export async function assertHoneypot(ctx: AssertionContext): Promise<SimulationA
           : `inbound transfer ${inboundOk ? "succeeded" : "failed"}, outbound ${outboundOk ? "succeeded" : "failed"}`,
     };
   } catch (e) {
-    return { id: "honeypot", label: "Honeypot / blocklist behavior", passed: false, observed: `simulation error: ${(e as Error).message}` };
+    return {
+      id: "honeypot",
+      label: "Honeypot / blocklist behavior",
+      passed: false,
+      observed: `simulation error: ${(e as Error).message}`,
+    };
   }
 }
 
 /** Approval-scope check: unlimited allowance to an upgradeable proxy is flagged. */
-export async function assertApprovalScope(ctx: AssertionContext & { spender: Address; spenderIsProxy: boolean }): Promise<SimulationAssertion> {
+export async function assertApprovalScope(
+  ctx: AssertionContext & { spender: Address; spenderIsProxy: boolean },
+): Promise<SimulationAssertion> {
   try {
     const h = snapshotHelpers(ctx.fork.client);
     const snap = await h.snapshot();
@@ -161,7 +177,10 @@ export async function assertApprovalScope(ctx: AssertionContext & { spender: Add
       method: "eth_sendTransaction",
       params: [{ from: ctx.from, to: ctx.token, data: encodeApprove(ctx.spender, 2n ** 256n - 1n) }],
     });
-    const allowRes = await ctx.fork.client.call({ to: ctx.token, data: `0xdd62ed3e${ctx.from.slice(2).padStart(64, "0")}${ctx.spender.slice(2).padStart(64, "0")}` });
+    const allowRes = await ctx.fork.client.call({
+      to: ctx.token,
+      data: `0xdd62ed3e${ctx.from.slice(2).padStart(64, "0")}${ctx.spender.slice(2).padStart(64, "0")}`,
+    });
     const allowance = allowRes.data ? BigInt(allowRes.data) : 0n;
     await h.revert(snap);
     const unlimited = allowance === 2n ** 256n - 1n;
@@ -170,14 +189,20 @@ export async function assertApprovalScope(ctx: AssertionContext & { spender: Add
       id: "approvalScope",
       label: "Approval scope",
       passed,
-      observed: unlimited && ctx.spenderIsProxy
-        ? "unlimited approval to an upgradeable contract — standing drain risk"
-        : unlimited
-          ? "unlimited approval to a non-proxy spender (noted)"
-          : "bounded approval",
+      observed:
+        unlimited && ctx.spenderIsProxy
+          ? "unlimited approval to an upgradeable contract — standing drain risk"
+          : unlimited
+            ? "unlimited approval to a non-proxy spender (noted)"
+            : "bounded approval",
     };
   } catch (e) {
-    return { id: "approvalScope", label: "Approval scope", passed: false, observed: `simulation error: ${(e as Error).message}` };
+    return {
+      id: "approvalScope",
+      label: "Approval scope",
+      passed: false,
+      observed: `simulation error: ${(e as Error).message}`,
+    };
   }
 }
 

@@ -288,17 +288,15 @@ contract PolicyVault {
                 "\x19\x01",
                 DOMAIN_SEPARATOR,
                 keccak256(
-                    abi.encode(ATTESTATION_TYPEHASH, att.orderId, att.riskTier, att.feeBps, att.simHash, att.expiry, att.nonce)
+                    abi.encode(
+                        ATTESTATION_TYPEHASH, att.orderId, att.riskTier, att.feeBps, att.simHash, att.expiry, att.nonce
+                    )
                 )
             )
         );
     }
 
-    function recoverAttestor(RiskAttestation calldata att, bytes calldata signature)
-        public
-        view
-        returns (address)
-    {
+    function recoverAttestor(RiskAttestation calldata att, bytes calldata signature) public view returns (address) {
         bytes32 digest = hashAttestation(att);
         return _recover(digest, signature);
     }

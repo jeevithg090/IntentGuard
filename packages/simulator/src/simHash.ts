@@ -1,4 +1,4 @@
-import { keccak256, stringToHex, encodeAbiParameters } from "viem";
+import { keccak256, stringToHex } from "viem";
 import { SimulationAssertion, SimulationResult } from "@intentguard/core";
 
 /**

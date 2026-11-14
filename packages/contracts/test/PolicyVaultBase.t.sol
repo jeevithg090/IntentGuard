@@ -92,21 +92,17 @@ contract PolicyVaultBase is Test {
         return orderFor(orderUser, inputAmount, destSettler, uint32(block.timestamp + 1 hours));
     }
 
-    function signAttestation(
-        PolicyVault.RiskAttestation memory att,
-        uint256 key
-    ) public view returns (bytes memory) {
+    function signAttestation(PolicyVault.RiskAttestation memory att, uint256 key) public view returns (bytes memory) {
         bytes32 digest = vault.hashAttestation(att);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(key, digest);
         return abi.encodePacked(r, s, v);
     }
 
-    function attestationFor(
-        OnchainCrossChainOrder memory order,
-        uint8 tier,
-        uint16 feeBps,
-        uint64 expiry
-    ) public view returns (PolicyVault.RiskAttestation memory) {
+    function attestationFor(OnchainCrossChainOrder memory order, uint8 tier, uint16 feeBps, uint64 expiry)
+        public
+        view
+        returns (PolicyVault.RiskAttestation memory)
+    {
         return PolicyVault.RiskAttestation({
             orderId: OrderData.orderId(order),
             riskTier: tier,

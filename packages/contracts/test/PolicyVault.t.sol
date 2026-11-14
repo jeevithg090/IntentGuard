@@ -112,8 +112,7 @@ contract PolicyVaultTest is PolicyVaultBase {
         vault.setPolicy(policy);
 
         OnchainCrossChainOrder memory order = defaultOrder(user, NOTIONAL_5K, address(settler));
-        PolicyVault.RiskAttestation memory att =
-            attestationFor(order, 2, 31, uint64(block.timestamp - 1));
+        PolicyVault.RiskAttestation memory att = attestationFor(order, 2, 31, uint64(block.timestamp - 1));
         bytes memory sig = signAttestation(att, attestorKey);
 
         vm.expectRevert(PolicyVault.StaleAttestation.selector);
@@ -172,7 +171,11 @@ contract PolicyVaultTest is PolicyVaultBase {
         PolicyVault.RiskAttestation memory att = attestationFor(order, 2, 31, uint64(block.timestamp + 1 hours));
         bytes memory sig = signAttestation(att, attestorKey);
 
-        vm.expectRevert(abi.encodeWithSelector(PolicyVault.FillDeadlineTooShort.selector, order.fillDeadline, uint32(block.timestamp + 30 minutes)));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                PolicyVault.FillDeadlineTooShort.selector, order.fillDeadline, uint32(block.timestamp + 30 minutes)
+            )
+        );
         vault.openWithPolicy(order, att, sig, proofFor(address(settler)));
     }
 
@@ -184,10 +187,13 @@ contract PolicyVaultTest is PolicyVaultBase {
         OnchainCrossChainOrder memory order = defaultOrder(user, NOTIONAL_5K, address(settler));
         // Genuinely malformed ABI: the length word claims 5 bytes of trailing data
         // but the 32-byte data word is missing.
-        bytes memory wellFormed =
-            abi.encode(user, address(usdc), NOTIONAL_5K, NOTIONAL_5K * 95 / 100, uint256(42_161), address(settler), user, "short");
+        bytes memory wellFormed = abi.encode(
+            user, address(usdc), NOTIONAL_5K, NOTIONAL_5K * 95 / 100, uint256(42_161), address(settler), user, "short"
+        );
         bytes memory truncated = new bytes(wellFormed.length - 32);
-        for (uint256 i = 0; i < truncated.length; i++) truncated[i] = wellFormed[i];
+        for (uint256 i = 0; i < truncated.length; i++) {
+            truncated[i] = wellFormed[i];
+        }
         order.orderData = truncated;
 
         PolicyVault.RiskAttestation memory att = attestationFor(order, 2, 31, uint64(block.timestamp + 1 hours));

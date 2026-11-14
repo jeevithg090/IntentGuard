@@ -1,4 +1,4 @@
-import { Address, createPublicClient, createWalletClient, http, parseAbi, PrivateKeyAccount, defineChain } from "viem";
+import { Address, createPublicClient, createWalletClient, http, parseAbi, defineChain } from "viem";
 import { Position, DriftEvent } from "@intentguard/core";
 import { scanPositions, ScoreFn } from "./drift.js";
 

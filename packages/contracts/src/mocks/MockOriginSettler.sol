@@ -9,7 +9,11 @@ import {MockERC20} from "./MockERC20.sol";
 /// OrderOpened/OrderFilled events from this contract.
 contract MockOriginSettler is IOriginSettler {
     event OrderOpened(
-        bytes32 indexed orderId, address indexed caller, address indexed settler, uint256 inputAmount, uint32 fillDeadline
+        bytes32 indexed orderId,
+        address indexed caller,
+        address indexed settler,
+        uint256 inputAmount,
+        uint32 fillDeadline
     );
     event OrderFilled(bytes32 indexed orderId, uint256 filledAt, uint256 outputAmount);
 

@@ -1,4 +1,4 @@
-import { Position, RiskProfile, DriftEvent, Signal, RiskTier } from "@intentguard/core";
+import { Position, RiskProfile, DriftEvent, Signal } from "@intentguard/core";
 
 export type ScoreFn = (position: Position) => Promise<RiskProfile>;
 

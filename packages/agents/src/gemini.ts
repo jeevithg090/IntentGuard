@@ -17,8 +17,7 @@ export function geminiClient(opts: {
 }): ModelClient {
   return {
     async generateJson<T>(input: { system: string; user: string; schema: z.ZodType<T> }): Promise<T> {
-      const { GoogleGenAI, Type, SchemaType } = (opts.apiModule ??
-        (await import("@google/genai"))) as unknown as {
+      const { GoogleGenAI, Type, SchemaType } = (opts.apiModule ?? (await import("@google/genai"))) as unknown as {
         GoogleGenAI: new (cfg: { apiKey: string }) => {
           models: {
             generateContent: (req: {

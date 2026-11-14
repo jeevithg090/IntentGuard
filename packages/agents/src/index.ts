@@ -5,11 +5,6 @@ export { runRedTeam, buildRedTeamContext } from "./redteam.js";
 export { runArbiter, buildArbiterContext } from "./arbiter.js";
 export { runAdversarialReview } from "./orchestrator.js";
 export type { ReviewResult } from "./orchestrator.js";
-export {
-  AgentRefusalError,
-  AgentTruncatedError,
-  AgentMalformedError,
-  parseModelJson,
-} from "./model.js";
+export { AgentRefusalError, AgentTruncatedError, AgentMalformedError, parseModelJson } from "./model.js";
 export type { ModelClient } from "./model.js";
 export { geminiClient, zodToGeminiSchema } from "./gemini.js";

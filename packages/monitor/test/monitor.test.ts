@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { Position, RiskProfile, Signal, Policy } from "@intentguard/core";
-import { scanPositions, diffSignals } from "../src/drift.js";
+import { scanPositions } from "../src/drift.js";
 
 const ADDR = (n: number) => `0x${n.toString(16).padStart(40, "0")}`;
 
@@ -15,7 +15,15 @@ const POLICY: Policy = {
 };
 
 function signal(id: string, tier: 1 | 2 | 3 | 4, detail = "test"): Signal {
-  return { id, label: id, value: detail, tierContribution: tier, source: { kind: "rpc", detail }, observedAt: Date.now(), ok: true };
+  return {
+    id,
+    label: id,
+    value: detail,
+    tierContribution: tier,
+    source: { kind: "rpc", detail },
+    observedAt: Date.now(),
+    ok: true,
+  };
 }
 
 function profile(tier: 1 | 2 | 3 | 4, signals: Signal[], settler: `0x${string}` = ADDR(1)): RiskProfile {
