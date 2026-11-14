@@ -6,8 +6,8 @@ import {PolicyVault} from "../src/PolicyVault.sol";
 import {MockUSDC} from "../src/mocks/MockUSDC.sol";
 import {MockOriginSettler} from "../src/mocks/MockOriginSettler.sol";
 
-/// Deploys the vault + mock settler + USDC, sets a demo policy, and funds the vault's
-/// depositor with spendable USDC. Run with:
+/// Deploys the vault + mock settler + USDC, commits a demo policy for the deployer
+/// account, and mints spendable USDC to DEMO_USER_ADDRESS. Run with:
 ///   forge script script/Deploy.s.sol --rpc-url $BASE_SEPOLIA_RPC --broadcast
 contract Deploy is Script {
     function leafOf(address a) internal pure returns (bytes32) {
@@ -38,7 +38,8 @@ contract Deploy is Script {
         });
         vault.setPolicy(policy);
 
-        // Fund the demo user and pre-approve the vault (one less demo step on stage).
+        // Fund the demo user. Note: the policy above is committed for the deployer
+        // (msg.sender); the demo user must call setPolicy/approve/deposit itself.
         usdc.mint(demoUser, 100_000e6);
 
         vm.stopBroadcast();
