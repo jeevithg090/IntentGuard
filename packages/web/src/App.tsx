@@ -1,376 +1,128 @@
-import { useState } from "react";
-import { decide, sabotage, Journal, TIER_COLORS } from "./api";
-import { Scope, ScopeToggle, ScopeBanner, LiveBadge, RoundTwoTeaser, RoadmapView } from "./scope";
-import { makeDemoJournal, makeDemoSabotage, DEMO_STEPS } from "./demo";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { ApiError, decide, sabotage, Journal } from "./api";
+import { PIPELINE_STEPS } from "./pipeline";
+import { Scope, ScopeToggle, ScopeBanner, RoundTwoTeaser } from "./scope";
+import { ThemeToggle } from "./theme";
+import { Alert, Button, Spinner } from "./ui";
+import { DebateView, EvidenceView, JournalView, MandateView, NotFoundView, RunState } from "./views";
+
+// Full Vision content is only needed after the scope toggle is flipped.
+const RoadmapView = lazy(() => import("./roadmap"));
+// Demo data is only needed once someone starts Demo Mode or the demo sabotage.
+const loadDemo = () => import("./demo");
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-type Tab = "mandate" | "evidence" | "debate" | "journal" | "roadmap";
+const ROUTES = ["mandate", "evidence", "debate", "journal", "roadmap"] as const;
+type Route = (typeof ROUTES)[number];
 
-const DEFAULT_CONSTRAINTS = [
-  "Asset: USDC",
-  "Amount: $5,000",
-  "Objective: maximize risk-adjusted yield",
-  "Max fee: 0.5%",
-  "Max risk tier: 2 (of 4)",
-  "Autonomy budget: $25k/day",
-];
-
-/** "maxRiskTier" → "Max risk tier" */
-const humanize = (key: string) => {
-  const words = key.replace(/([A-Z])/g, " $1").toLowerCase();
-  return words.charAt(0).toUpperCase() + words.slice(1);
+const TITLES: Record<Route, string> = {
+  mandate: "Mandate",
+  evidence: "Evidence",
+  debate: "Debate",
+  journal: "Journal",
+  roadmap: "Roadmap",
 };
 
-function TierBadge({ tier }: { tier: number }) {
-  return (
-    <span
-      className={`inline-block px-2 py-0.5 rounded text-xs font-semibold border ${TIER_COLORS[tier] ?? "text-slate-400 border-line"}`}
-    >
-      TIER {tier}
-    </span>
-  );
+/** `#/evidence` → "evidence"; empty hash → "mandate"; anything else → null (not found). */
+function parseHash(hash: string): Route | null {
+  const path = hash.replace(/^#\/?/, "").replace(/\/$/, "");
+  if (path === "") return "mandate";
+  return (ROUTES as readonly string[]).includes(path) ? (path as Route) : null;
 }
 
-// `live` marks a panel as a built Round 1 capability. In prototype scope it shows
-// a LIVE badge so judges can see, at a glance, what is real and demoable now.
-function Panel({
-  title,
-  children,
-  accent,
-  live,
-}: {
-  title: string;
-  children: React.ReactNode;
-  accent?: string;
-  live?: boolean;
-}) {
-  return (
-    <section className="bg-panel border border-line rounded-xl p-5">
-      <div className="flex items-center gap-2 mb-3">
-        <h3 className={`text-sm font-semibold uppercase tracking-wider ${accent ?? "text-slate-400"}`}>{title}</h3>
-        {live && <LiveBadge />}
-      </div>
-      {children}
-    </section>
-  );
+const hrefFor = (r: Route) => (r === "mandate" ? "#/" : `#/${r}`);
+
+function useHashRoute() {
+  const [hash, setHash] = useState(() => window.location.hash);
+  useEffect(() => {
+    const onChange = () => setHash(window.location.hash);
+    window.addEventListener("hashchange", onChange);
+    return () => window.removeEventListener("hashchange", onChange);
+  }, []);
+  const navigate = useCallback((r: Route) => {
+    window.location.hash = hrefFor(r);
+  }, []);
+  return { route: parseHash(hash), hash, navigate };
 }
 
-function MandateView({
-  onDecide,
-  onDemo,
-  busy,
-  showLive,
-  demoStatus,
-  journal,
-}: {
-  onDecide: (m: string) => void;
-  onDemo: () => void;
-  busy: boolean;
-  showLive: boolean;
-  demoStatus: string | null;
-  journal: Journal | null;
-}) {
-  const constraints = journal
-    ? Object.entries(journal.parsedConstraints).map(([k, v]) => `${humanize(k)}: ${v}`)
-    : DEFAULT_CONSTRAINTS;
-  const [mandate, setMandate] = useState(
-    "Move $5,000 USDC to the chain offering the best yield, but never use a route with a high-risk verification mechanism.",
-  );
-  return (
-    <div className="space-y-4">
-      <Panel title="Mandate input" accent="text-accent" live={showLive}>
-        <label htmlFor="mandate-input" className="sr-only">
-          Treasury mandate
-        </label>
-        <textarea
-          id="mandate-input"
-          className="w-full h-28 bg-ink border border-line rounded-lg p-3 text-sm focus:outline-none focus:border-accent"
-          value={mandate}
-          onChange={(e) => setMandate(e.target.value)}
-          placeholder="Describe what the treasury should do, in natural language…"
-        />
-        <div className="mt-3 flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            className="px-4 py-2 rounded-lg bg-accent text-white text-sm font-semibold disabled:opacity-40"
-            disabled={busy || mandate.trim().length === 0}
-            aria-busy={busy && !demoStatus}
-            onClick={() => onDecide(mandate.trim())}
-          >
-            {busy && !demoStatus ? "Deciding…" : "Run the pipeline"}
-          </button>
-          {/* Demo Mode runs the whole flow with realistic mock data — no backend
-              needed, so the static deploy shows the full product end to end. */}
-          {showLive && (
-            <button
-              type="button"
-              className="px-4 py-2 rounded-lg border border-ok/50 text-ok text-sm font-semibold disabled:opacity-40 hover:bg-ok/10"
-              disabled={busy}
-              onClick={onDemo}
-            >
-              {demoStatus ? "Running demo…" : "▶ Demo Mode"}
-            </button>
-          )}
-          <p className="text-xs text-slate-500">Score → adversarial review → simulation → on-chain attestation</p>
-        </div>
-        {demoStatus && (
-          <div role="status" aria-live="polite" className="mt-3 flex items-center gap-2 text-xs text-ok">
-            <span aria-hidden="true" className="inline-block h-2 w-2 animate-pulse rounded-full bg-ok" />
-            {demoStatus}
-          </div>
-        )}
-        {showLive && !demoStatus && (
-          <p className="mt-3 text-xs text-slate-500">
-            No backend? Click <span className="text-ok font-semibold">Demo Mode</span> to walk the full pipeline on
-            realistic mock data — evidence, the Proposer/Red Team debate, fork simulation, and the on-chain sabotage
-            revert.
-          </p>
-        )}
-      </Panel>
-      <Panel title="Parsed constraints">
-        <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-          {constraints.map((c) => (
-            <li key={c} className="bg-ink rounded px-3 py-2 border border-line">
-              {c}
-            </li>
-          ))}
-        </ul>
-      </Panel>
-    </div>
-  );
-}
+type UiError = { title: string; message: string; offline: boolean };
 
-function EvidenceView({ journal, showLive }: { journal: Journal; showLive: boolean }) {
-  return (
-    <div className="space-y-4">
-      <Panel title="Evidence board — every number is clickable" accent="text-accent" live={showLive}>
-        <div className="space-y-3">
-          {journal.profiles.map((p, i) => (
-            <details key={i} className="bg-ink rounded-lg border border-line">
-              <summary className="px-4 py-3 cursor-pointer flex items-center justify-between">
-                <span className="text-sm font-mono">{p.settler.slice(0, 10)}…</span>
-                <TierBadge tier={p.tier} />
-              </summary>
-              <div className="px-4 pb-4 space-y-2">
-                {p.signals.map((s) => (
-                  <details key={s.id} className="bg-panel rounded border border-line px-3 py-2">
-                    <summary className="cursor-pointer text-xs flex items-center gap-2">
-                      <span className={s.ok ? "text-ok" : "text-danger"}>{s.ok ? "✓" : "✗"}</span>
-                      <span className="font-semibold">{s.label}</span>
-                      <TierBadge tier={s.tierContribution} />
-                    </summary>
-                    <div className="mt-2 text-xs text-slate-400 space-y-1">
-                      <p>
-                        <span className="text-slate-500">value:</span> {String(s.value)}
-                      </p>
-                      <p>
-                        <span className="text-slate-500">query:</span>{" "}
-                        <code className="break-all">{s.source.detail}</code>
-                      </p>
-                      <p>
-                        <span className="text-slate-500">observed:</span> {new Date(s.observedAt).toISOString()}{" "}
-                        {s.blockNumber ? `· block ${s.blockNumber}` : ""}
-                      </p>
-                      {s.source.url && (
-                        <a className="text-accent underline" href={s.source.url} target="_blank" rel="noreferrer">
-                          {s.source.url}
-                        </a>
-                      )}
-                    </div>
-                  </details>
-                ))}
-              </div>
-            </details>
-          ))}
-        </div>
-      </Panel>
-    </div>
-  );
-}
-
-function DebateView({ journal, showLive }: { journal: Journal; showLive: boolean }) {
-  const { proposer, redTeam, arbiter } = journal;
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <Panel title="Proposer — wants to transact" accent="text-ok" live={showLive}>
-        {proposer ? (
-          <div className="space-y-3 text-sm">
-            <p className="text-slate-300">{proposer.argument}</p>
-            <p className="text-xs text-slate-500">
-              Recommended: {proposer.recommendedSolverId} · EV ${proposer.expectedValueUsd.toLocaleString()}
-            </p>
-            {proposer.acknowledgedTradeoffs.map((t, i) => (
-              <p key={i} className="text-xs text-warn">
-                ⚠ {t}
-              </p>
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm text-slate-500">Waiting for a proposal…</p>
-        )}
-      </Panel>
-      <Panel title="Red Team — wants to break it" accent="text-danger" live={showLive}>
-        {redTeam ? (
-          <div className="space-y-3 text-sm">
-            {redTeam.objections.map((o, i) => (
-              <div key={i} className="bg-danger/10 border border-danger/30 rounded-lg p-3">
-                <p className="font-semibold text-danger">
-                  {o.severity.toUpperCase()}: {o.claim}
-                </p>
-                <p className="text-xs text-slate-400 mt-1">{o.failureChain}</p>
-                <p className="text-xs text-slate-500 mt-1">evidence: {o.evidenceSignalIds.join(", ")}</p>
-              </div>
-            ))}
-            {redTeam.injectionAttemptsDetected.map((a, i) => (
-              <div key={i} className="bg-warn/10 border border-warn/40 rounded-lg p-3 text-xs">
-                <span className="text-warn font-bold">INJECTION DETECTED</span> in {a.field}: “{a.quotedText}”
-              </div>
-            ))}
-            <p className="text-xs text-slate-500">Recommendation: {redTeam.recommendation}</p>
-          </div>
-        ) : (
-          <p className="text-sm text-slate-500">Waiting for objections…</p>
-        )}
-      </Panel>
-      <div className="md:col-span-2">
-        <Panel
-          title="Arbiter verdict"
-          accent={arbiter?.verdict === "EXECUTE" ? "text-ok" : arbiter?.verdict === "ASK" ? "text-warn" : "text-danger"}
-        >
-          {arbiter ? (
-            <div className="space-y-3 text-sm">
-              <p className="text-2xl font-bold">
-                {arbiter.verdict}
-                {arbiter.selectedSolverId ? ` — ${arbiter.selectedSolverId}` : ""}
-              </p>
-              <p className="text-slate-300">{arbiter.reasoning}</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                <div>
-                  <p className="text-ok font-semibold mb-1">Upheld objections</p>
-                  {arbiter.upheldObjections.map((o, i) => (
-                    <p key={i} className="text-slate-400">
-                      • {o}
-                    </p>
-                  ))}
-                </div>
-                <div>
-                  <p className="text-slate-500 font-semibold mb-1">Dismissed objections</p>
-                  {arbiter.dismissedObjections.map((o, i) => (
-                    <p key={i} className="text-slate-500">
-                      • {o}
-                    </p>
-                  ))}
-                </div>
-              </div>
-              {journal.localOverrideApplied && (
-                <p className="text-danger text-xs font-semibold">
-                  LOCAL POLICY CHECK OVERRODE THE MODEL — the vault would have reverted anyway.
-                </p>
-              )}
-            </div>
-          ) : (
-            <p className="text-sm text-slate-500">No verdict yet.</p>
-          )}
-        </Panel>
-      </div>
-    </div>
-  );
-}
-
-function JournalView({
-  journals,
-  onSabotage,
-  showLive,
-  busy,
-}: {
-  journals: Journal[];
-  onSabotage: () => void;
-  showLive: boolean;
-  busy: boolean;
-}) {
-  return (
-    <div className="space-y-4">
-      <Panel title="Decision journal" accent="text-accent" live={showLive}>
-        {journals.length === 0 ? (
-          <p className="text-sm text-slate-500">No decisions recorded yet.</p>
-        ) : (
-          <div className="space-y-3">
-            {journals.map((j) => (
-              <details key={j.intentId} className="bg-ink rounded-lg border border-line">
-                <summary className="px-4 py-3 cursor-pointer flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-                  <span className="font-mono break-all">{j.intentId}</span>
-                  <span
-                    className={
-                      j.finalVerdict === "EXECUTE" ? "text-ok" : j.finalVerdict === "ASK" ? "text-warn" : "text-danger"
-                    }
-                  >
-                    {j.finalVerdict}
-                  </span>
-                  <span className="text-slate-500 text-xs">
-                    {j.quotesEvaluated} quotes · {j.injectionAttempts.length} injections ·{" "}
-                    {j.simulation?.assertions.filter((a) => !a.passed).length ?? 0} failed sims
-                  </span>
-                </summary>
-                <pre className="px-4 pb-4 text-xs text-slate-400 overflow-x-auto whitespace-pre-wrap">
-                  {JSON.stringify(j, null, 2)}
-                </pre>
-              </details>
-            ))}
-          </div>
-        )}
-      </Panel>
-      <Panel title="Sabotage (dev-only)" accent="text-danger" live={showLive}>
-        <p className="text-xs text-slate-400 mb-3">
-          POST a forged decision straight to the backend, bypassing the agents. The vault must revert
-          RiskTierExceedsPolicy.
-        </p>
-        <button
-          type="button"
-          className="px-4 py-2 rounded-lg bg-danger text-white text-sm font-semibold disabled:opacity-40"
-          disabled={busy}
-          onClick={onSabotage}
-        >
-          Force-select the tier-4 route
-        </button>
-      </Panel>
-    </div>
-  );
+function toUiError(e: unknown, action: string): UiError {
+  if (e instanceof ApiError) {
+    if (e.kind === "offline") return { title: "No backend connected", message: e.message, offline: true };
+    if (e.kind === "rejected") return { title: `The API rejected the ${action}`, message: e.message, offline: false };
+    return { title: `The API failed to complete the ${action}`, message: e.message, offline: false };
+  }
+  return { title: `Something went wrong with the ${action}`, message: String(e), offline: false };
 }
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>("mandate");
-  const [scope, setScope] = useState<Scope>("prototype");
-  const [busy, setBusy] = useState(false);
+  const { route, hash, navigate } = useHashRoute();
+  const [scope, setScope] = useState<Scope>(route === "roadmap" ? "vision" : "prototype");
+  const [run, setRun] = useState<RunState>({ kind: "idle" });
+  const [sabotageBusy, setSabotageBusy] = useState(false);
   const [journal, setJournal] = useState<Journal | null>(null);
   const [journals, setJournals] = useState<Journal[]>([]);
   const [sabotageResult, setSabotageResult] = useState<Journal | null>(null);
-  const [uiError, setUiError] = useState<string | null>(null);
+  const [uiError, setUiError] = useState<UiError | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [demo, setDemo] = useState(false);
-  const [demoStatus, setDemoStatus] = useState<string | null>(null);
+  const mainRef = useRef<HTMLElement>(null);
+  const errorRef = useRef<HTMLDivElement>(null);
+  const firstRender = useRef(true);
 
   const showLive = scope === "prototype";
+  const busy = run.kind !== "idle" || sabotageBusy;
 
-  // Toggling scope also fixes the active tab: entering Full Vision jumps to the
-  // roadmap; leaving it (while on the roadmap tab) falls back to Mandate.
+  // Keep scope and route consistent when the URL is changed directly.
+  useEffect(() => {
+    if (route === "roadmap" && scope !== "vision") setScope("vision");
+  }, [route, scope]);
+
+  // Page title per view, and move focus to the content after navigation so
+  // keyboard and screen-reader users land on the new view.
+  useEffect(() => {
+    document.title = route ? `${TITLES[route]} · IntentGuard` : "Page not found · IntentGuard";
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+    mainRef.current?.focus({ preventScroll: true });
+    window.scrollTo({ top: 0 });
+  }, [route]);
+
+  // Bring a new error into view: on phones the form's buttons sit far below it.
+  useEffect(() => {
+    if (uiError) errorRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [uiError]);
+
+  // Entering Full Vision jumps to the roadmap; leaving it from the roadmap falls back to Mandate.
   const changeScope = (s: Scope) => {
     setScope(s);
-    if (s === "vision") setTab("roadmap");
-    else if (tab === "roadmap") setTab("mandate");
+    if (s === "vision") navigate("roadmap");
+    else if (route === "roadmap") navigate("mandate");
+  };
+
+  const record = (j: Journal) => {
+    setJournal(j);
+    setJournals((prev) => [j, ...prev]);
   };
 
   const runDecide = async (mandate: string) => {
-    setBusy(true);
+    setRun({ kind: "live" });
     setUiError(null);
+    setNotice(null);
     try {
       const j = await decide(mandate);
-      setJournal(j);
-      setJournals((prev) => [j, ...prev]);
-      setTab("evidence");
+      record(j);
+      setDemo(false);
+      setNotice(`Decision ${j.intentId} recorded: ${j.finalVerdict}.`);
+      navigate("evidence");
     } catch (e) {
-      setUiError(e instanceof Error ? e.message : String(e));
+      setUiError(toUiError(e, "decision"));
     } finally {
-      setBusy(false);
+      setRun({ kind: "idle" });
     }
   };
 
@@ -378,130 +130,215 @@ export default function App() {
   // like a live run. No backend required — works on the static deploy.
   const runDemo = async () => {
     setUiError(null);
-    setBusy(true);
-    setDemo(true);
+    setNotice(null);
+    setRun({ kind: "demo", step: 0 });
+    navigate("mandate");
     try {
-      for (const step of DEMO_STEPS) {
-        setDemoStatus(step);
+      const demoModule = loadDemo();
+      for (let i = 0; i < PIPELINE_STEPS.length; i++) {
+        setRun({ kind: "demo", step: i });
         await sleep(650);
       }
-      const j = makeDemoJournal();
-      setJournal(j);
-      setJournals((prev) => [j, ...prev]);
-      setTab("evidence");
+      const j = (await demoModule).makeDemoJournal();
+      record(j);
+      setDemo(true);
+      setNotice(`Demo decision ${j.intentId} recorded: ${j.finalVerdict} via ${j.arbiter?.selectedSolverId}.`);
+      navigate("evidence");
+    } catch (e) {
+      setUiError(toUiError(e, "demo"));
     } finally {
-      setDemoStatus(null);
-      setBusy(false);
+      setRun({ kind: "idle" });
     }
   };
 
   const runSabotage = async () => {
     setUiError(null);
-    // In demo mode, use the realistic mock revert instead of the live backend.
-    if (demo) {
-      const j = makeDemoSabotage();
-      setSabotageResult(j);
-      setJournals((prev) => [j, ...prev]);
-      setTab("journal");
-      return;
-    }
+    setNotice(null);
+    setSabotageBusy(true);
     try {
-      const j = await sabotage("route-c", 4);
+      // In demo mode, use the realistic mock revert instead of the live backend.
+      const j = demo ? (await loadDemo()).makeDemoSabotage() : await sabotage("route-c", 4);
       setSabotageResult(j);
       setJournals((prev) => [j, ...prev]);
-      setTab("journal");
     } catch (e) {
-      setUiError(e instanceof Error ? e.message : String(e));
+      setUiError(toUiError(e, "sabotage request"));
+    } finally {
+      setSabotageBusy(false);
     }
   };
 
-  const tabs: { id: Tab; label: string }[] = [
+  const nav: { id: Route; label: string; count?: number }[] = [
     { id: "mandate", label: "Mandate" },
     { id: "evidence", label: "Evidence" },
     { id: "debate", label: "Debate" },
-    { id: "journal", label: "Journal + Sabotage" },
-    ...(scope === "vision" ? [{ id: "roadmap" as Tab, label: "Roadmap" }] : []),
+    { id: "journal", label: "Journal", count: journals.length || undefined },
+    ...(scope === "vision" ? [{ id: "roadmap" as Route, label: "Roadmap" }] : []),
   ];
 
   return (
-    <div className="min-h-screen">
+    <div className="flex min-h-screen flex-col">
       <a
         href="#main"
-        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-10 focus:rounded focus:bg-accent focus:px-3 focus:py-2 focus:text-white"
+        onClick={(e) => {
+          e.preventDefault();
+          mainRef.current?.focus();
+        }}
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-accent-solid focus:px-4 focus:py-2 focus:text-white"
       >
         Skip to content
       </a>
-      <header className="border-b border-line bg-panel/60">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <div>
-              <h1 className="text-lg font-bold">IntentGuard</h1>
-              <p className="text-xs text-slate-500">The AI decides. The chain enforces.</p>
-            </div>
+
+      <header className="sticky top-0 z-30 border-b border-line bg-canvas/85 backdrop-blur supports-[backdrop-filter]:bg-canvas/70">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 pt-3 sm:px-6">
+          <a href="#/" className="flex min-w-0 items-center gap-2.5 rounded-lg" aria-label="IntentGuard home">
+            <Logo />
+            <span className="min-w-0">
+              <span className="block text-base font-bold leading-tight tracking-tight">IntentGuard</span>
+              <span className="hidden truncate text-xs text-subtle sm:block">The AI decides. The chain enforces.</span>
+            </span>
+          </a>
+          <div className="flex shrink-0 items-center gap-2">
             {demo && (
-              <span className="rounded border border-ok/40 bg-ok/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-ok">
+              <span className="hidden rounded-md border border-ok/40 bg-ok/10 px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wider text-ok sm:inline">
                 Demo data
               </span>
             )}
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <nav aria-label="Views" className="flex gap-1 overflow-x-auto max-w-full">
-              {tabs.map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  aria-current={tab === t.id ? "page" : undefined}
-                  className={`shrink-0 px-3 py-1.5 rounded-lg text-sm ${tab === t.id ? "bg-accent text-white" : "text-slate-400 hover:text-white"}`}
-                  onClick={() => setTab(t.id)}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </nav>
             <ScopeToggle scope={scope} onChange={changeScope} />
+            <ThemeToggle />
           </div>
         </div>
+        <nav aria-label="Views" className="mx-auto max-w-6xl px-2 sm:px-4">
+          <ul className="scrollbar-none -mb-px flex gap-1 overflow-x-auto pt-2">
+            {nav.map((t) => {
+              const active = route === t.id;
+              return (
+                <li key={t.id} className="shrink-0">
+                  <a
+                    href={hrefFor(t.id)}
+                    aria-current={active ? "page" : undefined}
+                    className={`flex min-h-11 items-center gap-2 border-b-2 px-3 text-sm font-medium transition-colors ${
+                      active
+                        ? "border-accent text-fg"
+                        : "border-transparent text-muted hover:border-line-strong hover:text-fg"
+                    }`}
+                  >
+                    {t.label}
+                    {t.count !== undefined && (
+                      <span className="rounded-full bg-inset px-1.5 text-2xs font-semibold tabular-nums text-muted">
+                        <span className="sr-only">(</span>
+                        {t.count}
+                        <span className="sr-only"> entries)</span>
+                      </span>
+                    )}
+                  </a>
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
       </header>
-      <main id="main" className="max-w-5xl mx-auto px-4 sm:px-6 py-6 space-y-4">
-        <ScopeBanner scope={scope} />
+
+      <main
+        id="main"
+        ref={mainRef}
+        tabIndex={-1}
+        className="mx-auto w-full max-w-6xl flex-1 space-y-4 px-4 py-6 focus:outline-none sm:px-6"
+      >
+        <h1 className="sr-only">{route ? `IntentGuard — ${TITLES[route]}` : "IntentGuard — page not found"}</h1>
+        {route && <ScopeBanner scope={scope} />}
+
         {uiError && (
-          <div role="alert" className="rounded-xl border border-warn/40 bg-warn/5 px-5 py-3 text-sm text-warn">
-            {uiError}
+          <div ref={errorRef} className="scroll-mt-32">
+            <Alert
+              tone="warn"
+              title={uiError.title}
+              onDismiss={() => setUiError(null)}
+              action={
+                uiError.offline && (
+                  <Button size="sm" variant="success" onClick={runDemo} disabled={busy}>
+                    <span aria-hidden="true">▶</span> Try Demo Mode instead
+                  </Button>
+                )
+              }
+            >
+              {uiError.message}
+            </Alert>
           </div>
         )}
-        {tab === "mandate" && (
-          <MandateView
-            onDecide={runDecide}
-            onDemo={runDemo}
+        {notice && (
+          <Alert tone="ok" title={notice} onDismiss={() => setNotice(null)}>
+            Review the evidence, then the debate and verdict.
+          </Alert>
+        )}
+
+        {route === "mandate" && (
+          <MandateView onDecide={runDecide} onDemo={runDemo} run={run} showLive={showLive} journal={journal} />
+        )}
+        {route === "evidence" && <EvidenceView journal={journal} showLive={showLive} />}
+        {route === "debate" && <DebateView journal={journal} showLive={showLive} />}
+        {route === "journal" && (
+          <JournalView
+            journals={journals}
+            onSabotage={runSabotage}
+            sabotageBusy={sabotageBusy}
+            sabotageResult={sabotageResult}
             busy={busy}
             showLive={showLive}
-            demoStatus={demoStatus}
-            journal={journal}
+            demo={demo}
           />
         )}
-        {tab === "evidence" &&
-          (journal ? (
-            <EvidenceView journal={journal} showLive={showLive} />
-          ) : (
-            <p className="text-slate-500 text-sm">Run a decision first.</p>
-          ))}
-        {tab === "debate" &&
-          (journal ? (
-            <DebateView journal={journal} showLive={showLive} />
-          ) : (
-            <p className="text-slate-500 text-sm">Run a decision first.</p>
-          ))}
-        {tab === "journal" && (
-          <JournalView journals={journals} onSabotage={runSabotage} showLive={showLive} busy={busy} />
+        {route === "roadmap" && (
+          <Suspense
+            fallback={
+              <p role="status" className="flex items-center gap-2 py-12 text-sm text-muted">
+                <Spinner /> Loading the roadmap…
+              </p>
+            }
+          >
+            <RoadmapView />
+          </Suspense>
         )}
-        {tab === "roadmap" && <RoadmapView />}
-        {sabotageResult && tab === "journal" && (
-          <p role="status" className="text-danger text-sm font-semibold">
-            {sabotageResult.error}
-          </p>
-        )}
-        {scope === "prototype" && tab !== "roadmap" && <RoundTwoTeaser onExpand={() => changeScope("vision")} />}
+        {route === null && <NotFoundView path={hash} />}
+
+        {route && scope === "prototype" && <RoundTwoTeaser onExpand={() => changeScope("vision")} />}
       </main>
+
+      <footer className="border-t border-line">
+        <div className="mx-auto flex max-w-6xl flex-col gap-2 px-4 py-5 text-xs text-subtle sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <p>IntentGuard prototype · risk-aware autonomous cross-chain treasury</p>
+          <a
+            href="https://github.com/jeevithg090/IntentGuard"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex min-h-10 items-center text-muted underline underline-offset-2 hover:text-fg sm:min-h-0"
+          >
+            Source on GitHub<span className="sr-only"> (opens in a new tab)</span>
+          </a>
+        </div>
+      </footer>
     </div>
+  );
+}
+
+function Logo() {
+  return (
+    <svg viewBox="0 0 32 32" className="h-8 w-8 shrink-0" aria-hidden="true">
+      <rect width="32" height="32" rx="8" className="fill-panel stroke-line" strokeWidth="1" />
+      <path
+        d="M16 5l9 3.5v6.8c0 5.6-3.8 9.9-9 11.7-5.2-1.8-9-6.1-9-11.7V8.5z"
+        fill="none"
+        className="stroke-accent"
+        strokeWidth="2.2"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M11.5 16.2l3.2 3.2 6-6.4"
+        fill="none"
+        className="stroke-ok"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }

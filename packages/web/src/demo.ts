@@ -14,15 +14,8 @@
 import type { Journal } from "./api";
 
 // Staged status lines shown while the demo "runs", so it feels like the real
-// pipeline rather than an instant data dump.
-export const DEMO_STEPS: string[] = [
-  "Parsing mandate → structured constraints…",
-  "Scoring 3 routes from live chain state…",
-  "Proposer vs Red Team — adversarial review…",
-  "Screening solver metadata for prompt injection…",
-  "Simulating the winning route against forked state…",
-  "Requesting on-chain risk attestation…",
-];
+// pipeline rather than an instant data dump. Shared with the pipeline stepper.
+export { PIPELINE_STEPS as DEMO_STEPS } from "./pipeline";
 
 const BLOCK = "21455102";
 const SIM_HASH = "0x9f2c8a41d3b7e05c6a1f4b8927de0c33ab5f6712e9d40c8b1a2f3e4d5c6b7a80";
