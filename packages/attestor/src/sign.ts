@@ -1,22 +1,6 @@
-import {
-  Address,
-  createPublicClient,
-  createWalletClient,
-  http,
-  keccak256,
-  toHex,
-  encodeAbiParameters,
-  parseAbi,
-  PrivateKeyAccount,
-} from "viem";
+import { Address, createPublicClient, http, keccak256, toHex, encodeAbiParameters, PrivateKeyAccount } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { Attestation, RiskTier, Policy } from "@intentguard/core";
-
-const VAULT_ABI = parseAbi([
-  "function DOMAIN_SEPARATOR() view returns (bytes32)",
-  "function currentNonce() view returns (uint64)",
-  "function openWithPolicy((uint32 fillDeadline, bytes32 orderDataType, bytes orderData) order, (bytes32 orderId, uint8 riskTier, uint16 feeBps, bytes32 simHash, uint64 expiry, uint64 nonce) att, bytes attestorSig, bytes32[] settlerProof) external",
-]);
+import { Attestation, RiskTier } from "@intentguard/core";
 
 export interface OrderData {
   user: Address;
@@ -60,14 +44,26 @@ export function encodeOrderData(data: OrderData): `0x${string}` {
   );
 }
 
+/**
+ * ABI-encode the order exactly as Solidity's `abi.encode(order)` does for the
+ * `OnchainCrossChainOrder` struct: a single tuple. Because the struct has a
+ * dynamic member (`bytes orderData`), the encoding starts with a 0x20 offset
+ * word — encoding the three fields as separate parameters would yield a
+ * different hash and the vault would revert `AttestationOrderMismatch`.
+ */
 export function encodeOrder(order: OnchainOrder): `0x${string}` {
   return encodeAbiParameters(
     [
-      { type: "uint32" },
-      { type: "bytes32" },
-      { type: "bytes" },
+      {
+        type: "tuple",
+        components: [
+          { name: "fillDeadline", type: "uint32" },
+          { name: "orderDataType", type: "bytes32" },
+          { name: "orderData", type: "bytes" },
+        ],
+      },
     ],
-    [order.fillDeadline, order.orderDataType, order.orderData],
+    [order],
   );
 }
 
@@ -81,7 +77,14 @@ export const ATTESTATION_TYPEHASH = keccak256(
 
 export function attestationHash(
   domainSeparator: `0x${string}`,
-  att: { orderId: `0x${string}`; riskTier: number; feeBps: number; simHash: `0x${string}`; expiry: bigint; nonce: bigint },
+  att: {
+    orderId: `0x${string}`;
+    riskTier: number;
+    feeBps: number;
+    simHash: `0x${string}`;
+    expiry: bigint;
+    nonce: bigint;
+  },
 ): `0x${string}` {
   const structHash = keccak256(
     encodeAbiParameters(
