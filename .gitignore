@@ -1,10 +1,30 @@
+# dependencies
 node_modules/
+
+# build output
 dist/
+*.tsbuildinfo
+
+# environment
 .env
-.env.local
-cache/
-broadcast/
+.env.*
+!.env.example
+
+# foundry
+packages/contracts/out/
+packages/contracts/cache/
+packages/contracts/broadcast/
 cache_forge/
-out/
-.DS_Store
+
+# tooling / caches
+coverage/
+.vite/
+.eslintcache
 *.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
