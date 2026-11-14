@@ -7,13 +7,44 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 type Tab = "mandate" | "evidence" | "debate" | "journal" | "roadmap";
 
+const DEFAULT_CONSTRAINTS = [
+  "Asset: USDC",
+  "Amount: $5,000",
+  "Objective: maximize risk-adjusted yield",
+  "Max fee: 0.5%",
+  "Max risk tier: 2 (of 4)",
+  "Autonomy budget: $25k/day",
+];
+
+/** "maxRiskTier" → "Max risk tier" */
+const humanize = (key: string) => {
+  const words = key.replace(/([A-Z])/g, " $1").toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+};
+
 function TierBadge({ tier }: { tier: number }) {
-  return <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold border ${TIER_COLORS[tier] ?? "text-slate-400 border-line"}`}>TIER {tier}</span>;
+  return (
+    <span
+      className={`inline-block px-2 py-0.5 rounded text-xs font-semibold border ${TIER_COLORS[tier] ?? "text-slate-400 border-line"}`}
+    >
+      TIER {tier}
+    </span>
+  );
 }
 
 // `live` marks a panel as a built Round 1 capability. In prototype scope it shows
 // a LIVE badge so judges can see, at a glance, what is real and demoable now.
-function Panel({ title, children, accent, live }: { title: string; children: React.ReactNode; accent?: string; live?: boolean }) {
+function Panel({
+  title,
+  children,
+  accent,
+  live,
+}: {
+  title: string;
+  children: React.ReactNode;
+  accent?: string;
+  live?: boolean;
+}) {
   return (
     <section className="bg-panel border border-line rounded-xl p-5">
       <div className="flex items-center gap-2 mb-3">
@@ -31,18 +62,29 @@ function MandateView({
   busy,
   showLive,
   demoStatus,
+  journal,
 }: {
   onDecide: (m: string) => void;
   onDemo: () => void;
   busy: boolean;
   showLive: boolean;
   demoStatus: string | null;
+  journal: Journal | null;
 }) {
-  const [mandate, setMandate] = useState("Move $5,000 USDC to the chain offering the best yield, but never use a route with a high-risk verification mechanism.");
+  const constraints = journal
+    ? Object.entries(journal.parsedConstraints).map(([k, v]) => `${humanize(k)}: ${v}`)
+    : DEFAULT_CONSTRAINTS;
+  const [mandate, setMandate] = useState(
+    "Move $5,000 USDC to the chain offering the best yield, but never use a route with a high-risk verification mechanism.",
+  );
   return (
     <div className="space-y-4">
       <Panel title="Mandate input" accent="text-accent" live={showLive}>
+        <label htmlFor="mandate-input" className="sr-only">
+          Treasury mandate
+        </label>
         <textarea
+          id="mandate-input"
           className="w-full h-28 bg-ink border border-line rounded-lg p-3 text-sm focus:outline-none focus:border-accent"
           value={mandate}
           onChange={(e) => setMandate(e.target.value)}
@@ -50,9 +92,11 @@ function MandateView({
         />
         <div className="mt-3 flex flex-wrap items-center gap-3">
           <button
+            type="button"
             className="px-4 py-2 rounded-lg bg-accent text-white text-sm font-semibold disabled:opacity-40"
-            disabled={busy}
-            onClick={() => onDecide(mandate)}
+            disabled={busy || mandate.trim().length === 0}
+            aria-busy={busy && !demoStatus}
+            onClick={() => onDecide(mandate.trim())}
           >
             {busy && !demoStatus ? "Deciding…" : "Run the pipeline"}
           </button>
@@ -60,6 +104,7 @@ function MandateView({
               needed, so the static deploy shows the full product end to end. */}
           {showLive && (
             <button
+              type="button"
               className="px-4 py-2 rounded-lg border border-ok/50 text-ok text-sm font-semibold disabled:opacity-40 hover:bg-ok/10"
               disabled={busy}
               onClick={onDemo}
@@ -70,22 +115,25 @@ function MandateView({
           <p className="text-xs text-slate-500">Score → adversarial review → simulation → on-chain attestation</p>
         </div>
         {demoStatus && (
-          <div className="mt-3 flex items-center gap-2 text-xs text-ok">
-            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-ok" />
+          <div role="status" aria-live="polite" className="mt-3 flex items-center gap-2 text-xs text-ok">
+            <span aria-hidden="true" className="inline-block h-2 w-2 animate-pulse rounded-full bg-ok" />
             {demoStatus}
           </div>
         )}
         {showLive && !demoStatus && (
           <p className="mt-3 text-xs text-slate-500">
-            No backend? Click <span className="text-ok font-semibold">Demo Mode</span> to walk the full pipeline on realistic
-            mock data — evidence, the Proposer/Red Team debate, fork simulation, and the on-chain sabotage revert.
+            No backend? Click <span className="text-ok font-semibold">Demo Mode</span> to walk the full pipeline on
+            realistic mock data — evidence, the Proposer/Red Team debate, fork simulation, and the on-chain sabotage
+            revert.
           </p>
         )}
       </Panel>
       <Panel title="Parsed constraints">
-        <ul className="grid grid-cols-2 gap-2 text-sm">
-          {["Asset: USDC", "Amount: $5,000", "Objective: maximize risk-adjusted yield", "Max fee: 0.5%", "Max risk tier: 2 (of 4)", "Autonomy budget: $25k/day"].map((c) => (
-            <li key={c} className="bg-ink rounded px-3 py-2 border border-line">{c}</li>
+        <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+          {constraints.map((c) => (
+            <li key={c} className="bg-ink rounded px-3 py-2 border border-line">
+              {c}
+            </li>
           ))}
         </ul>
       </Panel>
@@ -113,10 +161,22 @@ function EvidenceView({ journal, showLive }: { journal: Journal; showLive: boole
                       <TierBadge tier={s.tierContribution} />
                     </summary>
                     <div className="mt-2 text-xs text-slate-400 space-y-1">
-                      <p><span className="text-slate-500">value:</span> {String(s.value)}</p>
-                      <p><span className="text-slate-500">query:</span> <code className="break-all">{s.source.detail}</code></p>
-                      <p><span className="text-slate-500">observed:</span> {new Date(s.observedAt).toISOString()} {s.blockNumber ? `· block ${s.blockNumber}` : ""}</p>
-                      {s.source.url && <a className="text-accent underline" href={s.source.url} target="_blank" rel="noreferrer">{s.source.url}</a>}
+                      <p>
+                        <span className="text-slate-500">value:</span> {String(s.value)}
+                      </p>
+                      <p>
+                        <span className="text-slate-500">query:</span>{" "}
+                        <code className="break-all">{s.source.detail}</code>
+                      </p>
+                      <p>
+                        <span className="text-slate-500">observed:</span> {new Date(s.observedAt).toISOString()}{" "}
+                        {s.blockNumber ? `· block ${s.blockNumber}` : ""}
+                      </p>
+                      {s.source.url && (
+                        <a className="text-accent underline" href={s.source.url} target="_blank" rel="noreferrer">
+                          {s.source.url}
+                        </a>
+                      )}
                     </div>
                   </details>
                 ))}
@@ -132,14 +192,18 @@ function EvidenceView({ journal, showLive }: { journal: Journal; showLive: boole
 function DebateView({ journal, showLive }: { journal: Journal; showLive: boolean }) {
   const { proposer, redTeam, arbiter } = journal;
   return (
-    <div className="grid grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       <Panel title="Proposer — wants to transact" accent="text-ok" live={showLive}>
         {proposer ? (
           <div className="space-y-3 text-sm">
             <p className="text-slate-300">{proposer.argument}</p>
-            <p className="text-xs text-slate-500">Recommended: {proposer.recommendedSolverId} · EV ${proposer.expectedValueUsd.toLocaleString()}</p>
+            <p className="text-xs text-slate-500">
+              Recommended: {proposer.recommendedSolverId} · EV ${proposer.expectedValueUsd.toLocaleString()}
+            </p>
             {proposer.acknowledgedTradeoffs.map((t, i) => (
-              <p key={i} className="text-xs text-warn">⚠ {t}</p>
+              <p key={i} className="text-xs text-warn">
+                ⚠ {t}
+              </p>
             ))}
           </div>
         ) : (
@@ -151,7 +215,9 @@ function DebateView({ journal, showLive }: { journal: Journal; showLive: boolean
           <div className="space-y-3 text-sm">
             {redTeam.objections.map((o, i) => (
               <div key={i} className="bg-danger/10 border border-danger/30 rounded-lg p-3">
-                <p className="font-semibold text-danger">{o.severity.toUpperCase()}: {o.claim}</p>
+                <p className="font-semibold text-danger">
+                  {o.severity.toUpperCase()}: {o.claim}
+                </p>
                 <p className="text-xs text-slate-400 mt-1">{o.failureChain}</p>
                 <p className="text-xs text-slate-500 mt-1">evidence: {o.evidenceSignalIds.join(", ")}</p>
               </div>
@@ -167,24 +233,40 @@ function DebateView({ journal, showLive }: { journal: Journal; showLive: boolean
           <p className="text-sm text-slate-500">Waiting for objections…</p>
         )}
       </Panel>
-      <div className="col-span-2">
-        <Panel title="Arbiter verdict" accent={arbiter?.verdict === "EXECUTE" ? "text-ok" : arbiter?.verdict === "ASK" ? "text-warn" : "text-danger"}>
+      <div className="md:col-span-2">
+        <Panel
+          title="Arbiter verdict"
+          accent={arbiter?.verdict === "EXECUTE" ? "text-ok" : arbiter?.verdict === "ASK" ? "text-warn" : "text-danger"}
+        >
           {arbiter ? (
             <div className="space-y-3 text-sm">
-              <p className="text-2xl font-bold">{arbiter.verdict}{arbiter.selectedSolverId ? ` — ${arbiter.selectedSolverId}` : ""}</p>
+              <p className="text-2xl font-bold">
+                {arbiter.verdict}
+                {arbiter.selectedSolverId ? ` — ${arbiter.selectedSolverId}` : ""}
+              </p>
               <p className="text-slate-300">{arbiter.reasoning}</p>
-              <div className="grid grid-cols-2 gap-3 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                 <div>
                   <p className="text-ok font-semibold mb-1">Upheld objections</p>
-                  {arbiter.upheldObjections.map((o, i) => <p key={i} className="text-slate-400">• {o}</p>)}
+                  {arbiter.upheldObjections.map((o, i) => (
+                    <p key={i} className="text-slate-400">
+                      • {o}
+                    </p>
+                  ))}
                 </div>
                 <div>
                   <p className="text-slate-500 font-semibold mb-1">Dismissed objections</p>
-                  {arbiter.dismissedObjections.map((o, i) => <p key={i} className="text-slate-500">• {o}</p>)}
+                  {arbiter.dismissedObjections.map((o, i) => (
+                    <p key={i} className="text-slate-500">
+                      • {o}
+                    </p>
+                  ))}
                 </div>
               </div>
               {journal.localOverrideApplied && (
-                <p className="text-danger text-xs font-semibold">LOCAL POLICY CHECK OVERRODE THE MODEL — the vault would have reverted anyway.</p>
+                <p className="text-danger text-xs font-semibold">
+                  LOCAL POLICY CHECK OVERRODE THE MODEL — the vault would have reverted anyway.
+                </p>
               )}
             </div>
           ) : (
@@ -196,7 +278,17 @@ function DebateView({ journal, showLive }: { journal: Journal; showLive: boolean
   );
 }
 
-function JournalView({ journals, onSabotage, showLive }: { journals: Journal[]; onSabotage: () => void; showLive: boolean }) {
+function JournalView({
+  journals,
+  onSabotage,
+  showLive,
+  busy,
+}: {
+  journals: Journal[];
+  onSabotage: () => void;
+  showLive: boolean;
+  busy: boolean;
+}) {
   return (
     <div className="space-y-4">
       <Panel title="Decision journal" accent="text-accent" live={showLive}>
@@ -206,20 +298,39 @@ function JournalView({ journals, onSabotage, showLive }: { journals: Journal[]; 
           <div className="space-y-3">
             {journals.map((j) => (
               <details key={j.intentId} className="bg-ink rounded-lg border border-line">
-                <summary className="px-4 py-3 cursor-pointer flex items-center gap-3 text-sm">
-                  <span className="font-mono">{j.intentId}</span>
-                  <span className={j.finalVerdict === "EXECUTE" ? "text-ok" : j.finalVerdict === "ASK" ? "text-warn" : "text-danger"}>{j.finalVerdict}</span>
-                  <span className="text-slate-500 text-xs">{j.quotesEvaluated} quotes · {j.injectionAttempts.length} injections · {j.simulation?.assertions.filter((a) => !a.passed).length ?? 0} failed sims</span>
+                <summary className="px-4 py-3 cursor-pointer flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                  <span className="font-mono break-all">{j.intentId}</span>
+                  <span
+                    className={
+                      j.finalVerdict === "EXECUTE" ? "text-ok" : j.finalVerdict === "ASK" ? "text-warn" : "text-danger"
+                    }
+                  >
+                    {j.finalVerdict}
+                  </span>
+                  <span className="text-slate-500 text-xs">
+                    {j.quotesEvaluated} quotes · {j.injectionAttempts.length} injections ·{" "}
+                    {j.simulation?.assertions.filter((a) => !a.passed).length ?? 0} failed sims
+                  </span>
                 </summary>
-                <pre className="px-4 pb-4 text-xs text-slate-400 overflow-x-auto whitespace-pre-wrap">{JSON.stringify(j, null, 2)}</pre>
+                <pre className="px-4 pb-4 text-xs text-slate-400 overflow-x-auto whitespace-pre-wrap">
+                  {JSON.stringify(j, null, 2)}
+                </pre>
               </details>
             ))}
           </div>
         )}
       </Panel>
       <Panel title="Sabotage (dev-only)" accent="text-danger" live={showLive}>
-        <p className="text-xs text-slate-400 mb-3">POST a forged decision straight to the backend, bypassing the agents. The vault must revert RiskTierExceedsPolicy.</p>
-        <button className="px-4 py-2 rounded-lg bg-danger text-white text-sm font-semibold" onClick={onSabotage}>
+        <p className="text-xs text-slate-400 mb-3">
+          POST a forged decision straight to the backend, bypassing the agents. The vault must revert
+          RiskTierExceedsPolicy.
+        </p>
+        <button
+          type="button"
+          className="px-4 py-2 rounded-lg bg-danger text-white text-sm font-semibold disabled:opacity-40"
+          disabled={busy}
+          onClick={onSabotage}
+        >
           Force-select the tier-4 route
         </button>
       </Panel>
@@ -314,8 +425,14 @@ export default function App() {
 
   return (
     <div className="min-h-screen">
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-10 focus:rounded focus:bg-accent focus:px-3 focus:py-2 focus:text-white"
+      >
+        Skip to content
+      </a>
       <header className="border-b border-line bg-panel/60">
-        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between gap-4">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <div>
               <h1 className="text-lg font-bold">IntentGuard</h1>
@@ -327,40 +444,63 @@ export default function App() {
               </span>
             )}
           </div>
-          <div className="flex items-center gap-3">
-            <div className="flex gap-1">
+          <div className="flex flex-wrap items-center gap-3">
+            <nav aria-label="Views" className="flex gap-1 overflow-x-auto max-w-full">
               {tabs.map((t) => (
                 <button
                   key={t.id}
-                  className={`px-3 py-1.5 rounded-lg text-sm ${tab === t.id ? "bg-accent text-white" : "text-slate-400 hover:text-white"}`}
+                  type="button"
+                  aria-current={tab === t.id ? "page" : undefined}
+                  className={`shrink-0 px-3 py-1.5 rounded-lg text-sm ${tab === t.id ? "bg-accent text-white" : "text-slate-400 hover:text-white"}`}
                   onClick={() => setTab(t.id)}
                 >
                   {t.label}
                 </button>
               ))}
-            </div>
+            </nav>
             <ScopeToggle scope={scope} onChange={changeScope} />
           </div>
         </div>
       </header>
-      <main className="max-w-5xl mx-auto px-6 py-6 space-y-4">
+      <main id="main" className="max-w-5xl mx-auto px-4 sm:px-6 py-6 space-y-4">
         <ScopeBanner scope={scope} />
         {uiError && (
-          <div className="rounded-xl border border-warn/40 bg-warn/5 px-5 py-3 text-sm text-warn">
+          <div role="alert" className="rounded-xl border border-warn/40 bg-warn/5 px-5 py-3 text-sm text-warn">
             {uiError}
           </div>
         )}
-        {tab === "mandate" && <MandateView onDecide={runDecide} onDemo={runDemo} busy={busy} showLive={showLive} demoStatus={demoStatus} />}
-        {tab === "evidence" && (journal ? <EvidenceView journal={journal} showLive={showLive} /> : <p className="text-slate-500 text-sm">Run a decision first.</p>)}
-        {tab === "debate" && (journal ? <DebateView journal={journal} showLive={showLive} /> : <p className="text-slate-500 text-sm">Run a decision first.</p>)}
-        {tab === "journal" && <JournalView journals={journals} onSabotage={runSabotage} showLive={showLive} />}
+        {tab === "mandate" && (
+          <MandateView
+            onDecide={runDecide}
+            onDemo={runDemo}
+            busy={busy}
+            showLive={showLive}
+            demoStatus={demoStatus}
+            journal={journal}
+          />
+        )}
+        {tab === "evidence" &&
+          (journal ? (
+            <EvidenceView journal={journal} showLive={showLive} />
+          ) : (
+            <p className="text-slate-500 text-sm">Run a decision first.</p>
+          ))}
+        {tab === "debate" &&
+          (journal ? (
+            <DebateView journal={journal} showLive={showLive} />
+          ) : (
+            <p className="text-slate-500 text-sm">Run a decision first.</p>
+          ))}
+        {tab === "journal" && (
+          <JournalView journals={journals} onSabotage={runSabotage} showLive={showLive} busy={busy} />
+        )}
         {tab === "roadmap" && <RoadmapView />}
         {sabotageResult && tab === "journal" && (
-          <p className="text-danger text-sm font-semibold">{sabotageResult.error}</p>
+          <p role="status" className="text-danger text-sm font-semibold">
+            {sabotageResult.error}
+          </p>
         )}
-        {scope === "prototype" && tab !== "roadmap" && (
-          <RoundTwoTeaser onExpand={() => changeScope("vision")} />
-        )}
+        {scope === "prototype" && tab !== "roadmap" && <RoundTwoTeaser onExpand={() => changeScope("vision")} />}
       </main>
     </div>
   );
