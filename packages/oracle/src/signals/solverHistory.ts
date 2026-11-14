@@ -32,7 +32,7 @@ export async function scoreSolverHistory(
   const rpcUrl = (client as { transport?: { url?: string } }).transport?.url;
   try {
     const blockNumber = await client.getBlockNumber();
-    const from = fromBlock > 0n ? fromBlock : (blockNumber - 200_000n > 0n ? blockNumber - 200_000n : 0n);
+    const from = fromBlock > 0n ? fromBlock : blockNumber - 200_000n > 0n ? blockNumber - 200_000n : 0n;
 
     const [opens, fills] = await Promise.all([
       client.getLogs({

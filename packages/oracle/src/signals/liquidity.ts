@@ -1,13 +1,16 @@
 import { Signal, RiskTier } from "@intentguard/core";
 
 const LLAMA_PROTOCOL = "https://api.llama.fi/protocol/{slug}";
+const FETCH_TIMEOUT_MS = 10_000;
+
+const protocolUrl = (slug: string) => LLAMA_PROTOCOL.replace("{slug}", encodeURIComponent(slug));
 
 const fail = (slug: string, detail: string): Signal => ({
   id: "liquidity",
   label: "Liquidity (TVL + trend)",
   value: null,
   tierContribution: 4,
-  source: { kind: "http", detail, url: LLAMA_PROTOCOL.replace("{slug}", slug) },
+  source: { kind: "http", detail, url: protocolUrl(slug) },
   observedAt: Date.now(),
   ok: false,
 });
@@ -21,9 +24,9 @@ export interface LiquidityFacts {
 }
 
 export async function scoreLiquidity(slug: string, fetchFn: typeof fetch = fetch): Promise<Signal> {
-  const url = LLAMA_PROTOCOL.replace("{slug}", slug);
+  const url = protocolUrl(slug);
   try {
-    const res = await fetchFn(url);
+    const res = await fetchFn(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
     if (!res.ok) return fail(slug, `DefiLlama protocol API HTTP ${res.status}`);
     const data = (await res.json()) as {
       tvl?: number;
@@ -52,7 +55,8 @@ export async function scoreLiquidity(slug: string, fetchFn: typeof fetch = fetch
       tier = Math.max(tier, 2) as RiskTier;
       reasons.push(`30d trend ${trend.toFixed(1)}%`);
     }
-    if (reasons.length === 0) reasons.push(`TVL $${(tvl / 1e6).toFixed(2)}M, 30d trend ${trend === null ? "n/a" : trend.toFixed(1) + "%"}`);
+    if (reasons.length === 0)
+      reasons.push(`TVL $${(tvl / 1e6).toFixed(2)}M, 30d trend ${trend === null ? "n/a" : trend.toFixed(1) + "%"}`);
 
     const facts: LiquidityFacts = { slug, tvlUsd: tvl, tvl30dAgoUsd: monthAgo, trend30dPct: trend, tier };
     return {

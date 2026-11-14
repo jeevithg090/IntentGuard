@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { createPublicClient, custom, http } from "viem";
+import { describe, it, expect, vi } from "vitest";
+import { createPublicClient, custom } from "viem";
 import { scoreUpgradeability, decodeSafeOwners } from "../src/signals/upgradeability.js";
 import { scoreLiquidity } from "../src/signals/liquidity.js";
 import { scoreIncidents } from "../src/signals/incidents.js";
@@ -12,7 +12,6 @@ const ADMIN_EOA = ADDR(0x222);
 const ADMIN_SAFE = ADDR(0x333);
 
 const IMPL_SLOT = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc";
-const ADMIN_SLOT = "0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103";
 
 const zeroSlot = "0x0000000000000000000000000000000000000000000000000000000000000000";
 const addrSlot = (a: string) => `0x000000000000000000000000${a.slice(2)}`;
@@ -41,7 +40,8 @@ function makeClient(overrides: Record<string, unknown> = {}) {
 describe("upgradeability signal", () => {
   it("detects EIP-1967 proxy", async () => {
     const client = makeClient({
-      eth_getStorageAt: (params: [unknown, string]) => (params[1] === IMPL_SLOT ? addrSlot(IMPL) : addrSlot(ADMIN_SAFE)),
+      eth_getStorageAt: (params: [unknown, string]) =>
+        params[1] === IMPL_SLOT ? addrSlot(IMPL) : addrSlot(ADMIN_SAFE),
       eth_getCode: () => "0x6000",
       eth_blockNumber: () => "0x10",
       eth_call: (params: [{ data: string }]) =>
@@ -59,6 +59,7 @@ describe("upgradeability signal", () => {
   it("identifies non-proxy as immutable", async () => {
     const client = makeClient({
       eth_getStorageAt: () => zeroSlot,
+      eth_getCode: () => "0x6000",
       eth_blockNumber: () => "0x10",
     });
     const sig = await scoreUpgradeability(client, TARGET);
@@ -68,10 +69,22 @@ describe("upgradeability signal", () => {
     expect(sig.tierContribution).toBe(1);
   });
 
+  it("fails closed when the settler has no contract code", async () => {
+    const client = makeClient({
+      eth_getStorageAt: () => zeroSlot,
+      eth_getCode: () => "0x",
+      eth_blockNumber: () => "0x10",
+    });
+    const sig = await scoreUpgradeability(client, TARGET);
+    expect(sig.ok).toBe(true);
+    expect(sig.tierContribution).toBe(4);
+    expect(sig.source.detail).toContain("not a deployed contract");
+  });
+
   it("flags EOA admin as tier 4", async () => {
     const client = makeClient({
       eth_getStorageAt: (params: [unknown, string]) => (params[1] === IMPL_SLOT ? addrSlot(IMPL) : addrSlot(ADMIN_EOA)),
-      eth_getCode: () => "0x",
+      eth_getCode: (params: [string]) => (params[0].toLowerCase() === ADMIN_EOA.toLowerCase() ? "0x" : "0x6000"),
       eth_blockNumber: () => "0x10",
     });
     const sig = await scoreUpgradeability(client, TARGET);
@@ -82,7 +95,8 @@ describe("upgradeability signal", () => {
 
   it("parses Safe threshold", async () => {
     const client = makeClient({
-      eth_getStorageAt: (params: [unknown, string]) => (params[1] === IMPL_SLOT ? addrSlot(IMPL) : addrSlot(ADMIN_SAFE)),
+      eth_getStorageAt: (params: [unknown, string]) =>
+        params[1] === IMPL_SLOT ? addrSlot(IMPL) : addrSlot(ADMIN_SAFE),
       eth_getCode: () => "0x6000",
       eth_blockNumber: () => "0x10",
       eth_call: (params: [{ data: string }]) => {
@@ -105,12 +119,14 @@ describe("upgradeability signal", () => {
 
   it("detects timelock delay", async () => {
     const client = makeClient({
-      eth_getStorageAt: (params: [unknown, string]) => (params[1] === IMPL_SLOT ? addrSlot(IMPL) : addrSlot(ADMIN_SAFE)),
+      eth_getStorageAt: (params: [unknown, string]) =>
+        params[1] === IMPL_SLOT ? addrSlot(IMPL) : addrSlot(ADMIN_SAFE),
       eth_getCode: () => "0x6000",
       eth_blockNumber: () => "0x10",
       eth_call: (params: [{ data: string }]) => {
         if (params[0].data.startsWith("0xe75235b8")) return `0x${(4).toString(16).padStart(64, "0")}`;
-        if (params[0].data.startsWith("0xa0e67e2b")) return `0x${(0x20).toString(16).padStart(64, "0")}${(5).toString(16).padStart(64, "0")}${Array.from({ length: 5 }, (_, i) => ADDR(i + 1).slice(2)).join("")}`;
+        if (params[0].data.startsWith("0xa0e67e2b"))
+          return `0x${(0x20).toString(16).padStart(64, "0")}${(5).toString(16).padStart(64, "0")}${Array.from({ length: 5 }, (_, i) => ADDR(i + 1).slice(2)).join("")}`;
         if (params[0].data.startsWith("0xf27a0c92")) return `0x${(172800).toString(16).padStart(64, "0")}`;
         throw new Error("unexpected");
       },
@@ -122,12 +138,14 @@ describe("upgradeability signal", () => {
 
   it("no timelock lowers tier", async () => {
     const client = makeClient({
-      eth_getStorageAt: (params: [unknown, string]) => (params[1] === IMPL_SLOT ? addrSlot(IMPL) : addrSlot(ADMIN_SAFE)),
+      eth_getStorageAt: (params: [unknown, string]) =>
+        params[1] === IMPL_SLOT ? addrSlot(IMPL) : addrSlot(ADMIN_SAFE),
       eth_getCode: () => "0x6000",
       eth_blockNumber: () => "0x10",
       eth_call: (params: [{ data: string }]) => {
         if (params[0].data.startsWith("0xe75235b8")) return `0x${(4).toString(16).padStart(64, "0")}`;
-        if (params[0].data.startsWith("0xa0e67e2b")) return `0x${(0x20).toString(16).padStart(64, "0")}${(5).toString(16).padStart(64, "0")}${Array.from({ length: 5 }, (_, i) => ADDR(i + 1).slice(2)).join("")}`;
+        if (params[0].data.startsWith("0xa0e67e2b"))
+          return `0x${(0x20).toString(16).padStart(64, "0")}${(5).toString(16).padStart(64, "0")}${Array.from({ length: 5 }, (_, i) => ADDR(i + 1).slice(2)).join("")}`;
         throw new Error("revert");
       },
     });
@@ -152,7 +170,9 @@ describe("liquidity signal", () => {
   const base = { tvl: 12_400_000, tvlPrevMonth: 12_800_000, name: "Demo" };
 
   it("flags TVL drawdown", async () => {
-    const fetchFn = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ tvl: 4_000_000, tvlPrevMonth: 10_000_000 }) });
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValue({ ok: true, json: async () => ({ tvl: 4_000_000, tvlPrevMonth: 10_000_000 }) });
     const sig = await scoreLiquidity("demo", fetchFn as unknown as typeof fetch);
     expect(sig.tierContribution).toBe(4);
     expect(sig.source.detail).toContain("drawdown");
@@ -210,11 +230,15 @@ describe("scoreRoute", () => {
       eth_getLogs: () => [],
     });
     const fetchFn = vi.fn().mockResolvedValue({ ok: true, json: async () => [] });
-    const profile = await scoreRoute(client, { settler: TARGET, protocolSlug: "demo", fetchFn: fetchFn as unknown as typeof fetch });
+    await scoreRoute(client, { settler: TARGET, protocolSlug: "demo", fetchFn: fetchFn as unknown as typeof fetch });
     // incidents for empty list = tier 1, liquidity depends on fetch... but the
     // point: an injected failing signal (e.g. liquidity timeout) forces tier 4.
     const failing = vi.fn().mockRejectedValue(new Error("timeout"));
-    const profile2 = await scoreRoute(client, { settler: TARGET, protocolSlug: "demo", fetchFn: failing as unknown as typeof fetch });
+    const profile2 = await scoreRoute(client, {
+      settler: TARGET,
+      protocolSlug: "demo",
+      fetchFn: failing as unknown as typeof fetch,
+    });
     expect(profile2.tier).toBe(4);
     expect(profile2.signals.filter((s) => !s.ok).length).toBeGreaterThan(0);
   });
@@ -225,8 +249,14 @@ describe("scoreRoute", () => {
       eth_blockNumber: () => "0x10",
       eth_getLogs: () => [],
     });
-    const fetchFn = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ tvl: 50_000_000, tvlPrevMonth: 51_000_000 }) });
-    const profile = await scoreRoute(client, { settler: TARGET, protocolSlug: "demo", fetchFn: fetchFn as unknown as typeof fetch });
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValue({ ok: true, json: async () => ({ tvl: 50_000_000, tvlPrevMonth: 51_000_000 }) });
+    const profile = await scoreRoute(client, {
+      settler: TARGET,
+      protocolSlug: "demo",
+      fetchFn: fetchFn as unknown as typeof fetch,
+    });
     for (const s of profile.signals) {
       expect(s.source.detail.length).toBeGreaterThan(0);
       expect(s.observedAt).toBeGreaterThan(0);
@@ -239,11 +269,16 @@ describe("scoreRoute", () => {
   it("provenance includes block number for rpc signals", async () => {
     const client = makeClient({
       eth_getStorageAt: () => zeroSlot,
+      eth_getCode: () => "0x6000",
       eth_blockNumber: () => "0x2a",
       eth_getLogs: () => [],
     });
     const fetchFn = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ tvl: 50_000_000 }) });
-    const profile = await scoreRoute(client, { settler: TARGET, protocolSlug: "demo", fetchFn: fetchFn as unknown as typeof fetch });
+    const profile = await scoreRoute(client, {
+      settler: TARGET,
+      protocolSlug: "demo",
+      fetchFn: fetchFn as unknown as typeof fetch,
+    });
     const rpcSignal = profile.signals.find((s) => s.source.kind === "rpc");
     expect(rpcSignal?.blockNumber).toBe(42n);
   });

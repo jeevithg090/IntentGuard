@@ -1,18 +1,8 @@
-import { PublicClient, Address, parseAbi } from "viem";
+import { PublicClient, Address } from "viem";
 import { Signal, RiskTier } from "@intentguard/core";
 
 const IMPL_SLOT = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc";
 const ADMIN_SLOT = "0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103";
-
-const SAFE_ABI = parseAbi([
-  "function getThreshold() view returns (uint256)",
-  "function getOwners() view returns (address[])",
-]);
-const TIMELOCK_ABI = parseAbi([
-  "function getMinDelay() view returns (uint256)",
-  "function delay() view returns (uint256)",
-  "function getMinDelayExecute(address) view returns (uint256)",
-]);
 
 export interface UpgradeabilityFacts {
   isProxy: boolean;
@@ -67,6 +57,23 @@ export async function scoreUpgradeability(client: PublicClient, target: Address)
   const fail = (detail: string) => FAIL(`${detail} (target ${target})`, rpcUrl);
 
   try {
+    // A settler with no bytecode (an EOA or an undeployed address) cannot be an
+    // immutable contract — funds sent there are at the mercy of whoever holds
+    // the key. Fail closed instead of reading empty proxy slots as "immutable".
+    const targetCode = await client.getCode({ address: target });
+    if (!targetCode || targetCode === "0x") {
+      return {
+        id: "upgradeability",
+        label: "Upgradeability & admin control",
+        value: JSON.stringify({ isProxy: false, hasCode: false, tier: 4, summary: "No contract code at settler" }),
+        tierContribution: 4,
+        source: { kind: "rpc", detail: `eth_getCode(${target}) → 0x; settler is not a deployed contract`, url: rpcUrl },
+        observedAt: Date.now(),
+        blockNumber: blockNumber ?? undefined,
+        ok: true,
+      };
+    }
+
     const [implRaw, adminRaw] = await Promise.all([
       client.getStorageAt({ address: target, slot: IMPL_SLOT }),
       client.getStorageAt({ address: target, slot: ADMIN_SLOT }),
@@ -93,7 +100,11 @@ export async function scoreUpgradeability(client: PublicClient, target: Address)
         label: "Upgradeability & admin control",
         value: JSON.stringify(facts),
         tierContribution: 1,
-        source: { kind: "rpc", detail: `eth_getStorageAt(target, ${IMPL_SLOT}) → 0x0; contract is immutable`, url: rpcUrl },
+        source: {
+          kind: "rpc",
+          detail: `eth_getStorageAt(target, ${IMPL_SLOT}) → 0x0; contract is immutable`,
+          url: rpcUrl,
+        },
         observedAt: Date.now(),
         blockNumber: blockNumber ?? undefined,
         ok: true,
