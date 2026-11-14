@@ -4,19 +4,20 @@
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
-    "test": "vitest run",
     "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "test": "vitest run",
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@intentguard/core": "workspace:*",
-    "@intentguard/oracle": "workspace:*",
+    "@hono/node-server": "^1.19.19",
     "@intentguard/agents": "workspace:*",
-    "@intentguard/simulator": "workspace:*",
     "@intentguard/attestor": "workspace:*",
+    "@intentguard/core": "workspace:*",
     "@intentguard/monitor": "workspace:*",
-    "@hono/node-server": "^1.13.7",
-    "hono": "^4.6.14",
+    "@intentguard/oracle": "workspace:*",
+    "@intentguard/simulator": "workspace:*",
+    "hono": "^4.13.18",
     "viem": "^2.21.55",
     "zod": "^3.24.1"
   }
