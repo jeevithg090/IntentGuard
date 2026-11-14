@@ -73,24 +73,44 @@ export interface Journal {
 }
 
 // The frontend talks to the IntentGuard API at /api/*. On a static deploy
-// (e.g. Vercel) there is no backend, so these calls fail cleanly with a message
-// explaining how to run the full stack, rather than throwing a raw parse error.
+// (e.g. Vercel) there is no backend, so these calls fail with an `ApiError` of
+// kind "offline" that the UI turns into a "run the API or try Demo Mode" hint,
+// rather than surfacing a raw parse error.
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly kind: "offline" | "rejected" | "server",
+    readonly status?: number,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 const NO_BACKEND =
-  "No backend connected. This is the static frontend — run the API locally " +
-  "(pnpm --filter @intentguard/api dev) to enable live decisions and the on-chain sabotage proof.";
+  "This is the static frontend, so there is no API to talk to. Run the API locally " +
+  "(pnpm dev:api) for live decisions and the on-chain sabotage proof, or use Demo Mode.";
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
     res = await fetch(path, init);
   } catch {
-    throw new Error(NO_BACKEND);
+    throw new ApiError(NO_BACKEND, "offline");
   }
   const ct = res.headers.get("content-type") ?? "";
-  if (!res.ok || !ct.includes("application/json")) {
-    throw new Error(NO_BACKEND);
-  }
-  return res.json() as Promise<T>;
+  if (!ct.includes("application/json")) throw new ApiError(NO_BACKEND, "offline", res.status);
+  const body = (await res.json()) as unknown;
+  if (res.ok) return body as T;
+
+  // A failed decision still returns its journal (with `error` set); keep it so
+  // the UI can show what happened up to the failure.
+  if (body && typeof body === "object" && "intentId" in body) return body as T;
+
+  const b = body as { error?: string; issues?: { path: string; message: string }[] };
+  const detail = b.issues?.map((i) => (i.path ? `${i.path}: ${i.message}` : i.message)).join("; ");
+  const message = [b.error ?? `Request failed (${res.status})`, detail].filter(Boolean).join(" — ");
+  throw new ApiError(message, res.status >= 500 ? "server" : "rejected", res.status);
 }
 
 export async function decide(mandate: string): Promise<Journal> {
@@ -116,10 +136,3 @@ export async function getJournals(): Promise<Journal[]> {
 export async function getProvenance(settler: string): Promise<{ cards: ProvenanceCard[] }> {
   return call<{ cards: ProvenanceCard[] }>(`/api/provenance/${settler}`);
 }
-
-export const TIER_COLORS: Record<number, string> = {
-  1: "text-ok border-ok/40 bg-ok/10",
-  2: "text-emerald-300 border-emerald-400/40 bg-emerald-400/10",
-  3: "text-warn border-warn/40 bg-warn/10",
-  4: "text-danger border-danger/40 bg-danger/10",
-};

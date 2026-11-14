@@ -12,6 +12,8 @@
 // The whole point of the toggle: let judges see, at a glance, the exact line
 // between "we built and can demo this now" and "this is the Round 2 A–Z product."
 
+import { Badge } from "./ui";
+
 export type Scope = "prototype" | "vision";
 
 export interface BuiltCapability {
@@ -110,143 +112,90 @@ export function ScopeToggle({ scope, onChange }: { scope: Scope; onChange: (s: S
       aria-checked={!on}
       aria-label="Show full product vision"
       onClick={() => onChange(on ? "vision" : "prototype")}
-      className="flex items-center gap-2 rounded-lg border border-line bg-ink px-2.5 py-1.5 text-xs"
+      className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-line bg-panel px-2.5 text-xs transition hover:bg-inset"
       title="Toggle between the Round 1 prototype scope and the full Round 2 product vision"
     >
-      <span className={on ? "font-semibold text-ok" : "text-slate-500"}>Round 1 · Prototype</span>
+      {/* On narrow screens only the active side is labelled, to leave room for the brand. */}
+      <span className={on ? "font-semibold text-ok" : "hidden text-subtle sm:inline"}>
+        Prototype<span className="hidden sm:inline"> · Round 1</span>
+      </span>
       <span
         aria-hidden="true"
-        className={`relative inline-block h-4 w-8 rounded-full transition-colors ${on ? "bg-ok/30" : "bg-accent/30"}`}
+        className={`relative inline-block h-5 w-9 shrink-0 rounded-full transition-colors ${on ? "bg-ok/25" : "bg-accent/25"}`}
       >
         <span
-          className={`absolute top-0.5 h-3 w-3 rounded-full transition-all ${on ? "left-0.5 bg-ok" : "left-4 bg-accent"}`}
+          className={`absolute top-0.5 h-4 w-4 rounded-full shadow transition-all ${on ? "left-0.5 bg-ok" : "left-[1.125rem] bg-accent"}`}
         />
       </span>
-      <span className={!on ? "font-semibold text-accent" : "text-slate-500"}>Full Vision</span>
+      <span className={!on ? "font-semibold text-accent" : "hidden text-subtle sm:inline"}>Full Vision</span>
     </button>
   );
 }
 
 export function LiveBadge() {
   return (
-    <span className="inline-flex items-center gap-1 rounded border border-ok/40 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-ok">
-      <span className="h-1.5 w-1.5 rounded-full bg-ok" /> Live
-    </span>
+    <Badge tone="ok">
+      <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-ok" /> Live
+    </Badge>
   );
 }
 
 export function ScopeBanner({ scope }: { scope: Scope }) {
   if (scope === "prototype") {
     return (
-      <div className="rounded-xl border border-ok/30 bg-ok/5 px-5 py-3 text-sm">
+      <p className="rounded-xl border border-ok/30 bg-ok/5 px-4 py-3 text-sm leading-relaxed">
         <span className="font-semibold text-ok">Round 1 · Prototype.</span>{" "}
-        <span className="text-slate-300">
-          Everything below is built and demoable live. This is deliberately not the A–Z product —
+        <span className="text-fg">
+          Everything marked <span className="font-semibold text-ok">Live</span> is built and demoable now.
         </span>{" "}
-        <span className="text-slate-400">flip to Full Vision to see the Round 2 roadmap it sets up.</span>
-      </div>
+        <span className="text-muted">Flip to Full Vision to see the Round 2 roadmap it sets up.</span>
+      </p>
     );
   }
   return (
-    <div className="rounded-xl border border-accent/30 bg-accent/5 px-5 py-3 text-sm">
+    <p className="rounded-xl border border-accent/30 bg-accent/5 px-4 py-3 text-sm leading-relaxed">
       <span className="font-semibold text-accent">Full Vision · the A–Z product.</span>{" "}
-      <span className="text-slate-300">
-        Dashed cards below are Round 2 — planned, not yet built. Each one stands on something the Round 1 prototype
-        already proves.
+      <span className="text-fg">
+        Dashed cards are Round 2: planned, not yet built. Each one stands on something the Round 1 prototype already
+        proves.
       </span>
-    </div>
+    </p>
   );
 }
 
 // Compact "there is potential" indicator, shown in prototype mode only.
 export function RoundTwoTeaser({ onExpand }: { onExpand: () => void }) {
   return (
-    <section className="rounded-xl border border-dashed border-accent/40 bg-panel p-5">
-      <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-sm font-semibold uppercase tracking-wider text-accent">
+    <section
+      aria-labelledby="teaser-title"
+      className="rounded-xl border border-dashed border-accent/40 bg-panel/60 p-4 sm:p-5"
+    >
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 id="teaser-title" className="text-xs font-semibold uppercase tracking-wider text-accent">
           Round 2 potential — the full product
-        </h3>
-        <button type="button" onClick={onExpand} className="text-xs text-accent underline">
-          See the roadmap →
+        </h2>
+        <button
+          type="button"
+          onClick={onExpand}
+          className="-mx-2 min-h-10 rounded-lg px-2 text-sm font-semibold text-accent hover:bg-accent/10"
+        >
+          See the roadmap <span aria-hidden="true">→</span>
         </button>
       </div>
-      <div className="flex flex-wrap gap-2">
+      <ul className="flex flex-wrap gap-2">
         {ROADMAP.map((r) => (
-          <span key={r.title} className="rounded border border-dashed border-line px-2.5 py-1 text-xs text-slate-400">
+          <li
+            key={r.title}
+            className="rounded-md border border-dashed border-line-strong px-2.5 py-1 text-xs text-muted"
+          >
             {r.title}
-          </span>
+          </li>
         ))}
-      </div>
-      <p className="mt-3 text-xs text-slate-500">
+      </ul>
+      <p className="mt-3 text-xs text-subtle">
         {BUILT.length} core capabilities are built for Round 1. {ROADMAP.length} more are mapped for the Round 2 A–Z
         build.
       </p>
     </section>
-  );
-}
-
-// Full roadmap + honest scope table, shown in vision mode.
-export function RoadmapView() {
-  return (
-    <div className="space-y-4">
-      <section className="rounded-xl border border-line bg-panel p-5">
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-ok">
-          Round 1 — built &amp; demoable now
-        </h3>
-        <div className="grid gap-2 sm:grid-cols-2">
-          {BUILT.map((b) => (
-            <div key={b.title} className="rounded-lg border border-ok/25 bg-ink p-3">
-              <div className="mb-1 flex items-center gap-2">
-                <LiveBadge />
-                <span className="text-sm font-semibold">{b.title}</span>
-              </div>
-              <p className="text-xs text-slate-400">{b.live}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="rounded-xl border border-line bg-panel p-5">
-        <h3 className="mb-1 text-sm font-semibold uppercase tracking-wider text-accent">Round 2 — the A–Z product</h3>
-        <p className="mb-3 text-xs text-slate-500">
-          Planned, not built. Each item is anchored to what the prototype already proves.
-        </p>
-        <div className="space-y-2">
-          {ROADMAP.map((r) => (
-            <div key={r.title} className="rounded-lg border border-dashed border-accent/40 bg-ink p-3">
-              <div className="mb-1 flex items-center gap-2">
-                <span className="rounded border border-accent/40 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-accent">
-                  Round 2
-                </span>
-                <span className="text-sm font-semibold">{r.title}</span>
-              </div>
-              <p className="text-xs text-slate-300">{r.round2}</p>
-              <p className="mt-1 text-xs text-slate-500">
-                <span className="text-ok">Proven now:</span> {r.provenNow}
-              </p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="rounded-xl border border-line bg-panel p-5">
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-400">
-          What is real vs. mocked in the prototype
-        </h3>
-        <table className="w-full text-sm">
-          <tbody>
-            {REAL_VS_MOCKED.map((row) => (
-              <tr key={row.layer} className="border-b border-line last:border-0">
-                <td className="py-2 pr-3 text-slate-300">{row.layer}</td>
-                <td className="py-2 pr-3">
-                  {row.real ? <span className="text-ok">● Real</span> : <span className="text-warn">○ Mocked</span>}
-                </td>
-                <td className="py-2 text-xs text-slate-500">{row.note}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
-    </div>
   );
 }
