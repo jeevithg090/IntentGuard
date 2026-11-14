@@ -4,6 +4,9 @@ export const AddressSchema = z.custom<`0x${string}`>((v) => typeof v === "string
 
 export const Bytes32Schema = z.custom<`0x${string}`>((v) => typeof v === "string" && /^0x[0-9a-fA-F]{64}$/.test(v));
 
+/** Any 0x-prefixed, even-length hex string (e.g. an ECDSA signature). */
+export const HexSchema = z.custom<`0x${string}`>((v) => typeof v === "string" && /^0x([0-9a-fA-F]{2})*$/.test(v));
+
 export const RiskTierSchema = z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]);
 
 export const SignalSourceSchema = z.object({
@@ -103,15 +106,15 @@ export const SimulationAssertionSchema = z.object({
 export const SimulationResultSchema = z.object({
   blockNumber: z.bigint(),
   assertions: z.array(SimulationAssertionSchema),
-  simHash: AddressSchema,
+  simHash: Bytes32Schema,
 });
 
 export const AttestationSchema = z.object({
-  orderId: AddressSchema,
+  orderId: Bytes32Schema,
   riskTier: RiskTierSchema,
   feeBps: z.number().int().min(0),
-  simHash: AddressSchema,
+  simHash: Bytes32Schema,
   expiry: z.number().int(),
   nonce: z.bigint(),
-  signature: AddressSchema,
+  signature: HexSchema,
 });
