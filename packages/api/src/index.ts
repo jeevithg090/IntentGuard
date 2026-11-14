@@ -1,26 +1,49 @@
 import { Hono } from "hono";
-import { createPublicClient, http } from "viem";
-import { DecisionJournal, Policy, SolverQuote, Verdict, Address } from "@intentguard/core";
-import { toJsonSafe } from "@intentguard/core";
+import { cors } from "hono/cors";
+import { HTTPException } from "hono/http-exception";
+import { createPublicClient, http, keccak256, toHex } from "viem";
+import { Address, Attestation, DecisionJournal, Policy, Quote, SolverQuote, toJsonSafe } from "@intentguard/core";
 import { scoreRoute, provenanceCards } from "@intentguard/oracle";
-import { runAdversarialReview, geminiClient, AgentRefusalError, AgentTruncatedError, AgentMalformedError } from "@intentguard/agents";
+import { runAdversarialReview, geminiClient, ReviewResult } from "@intentguard/agents";
 import { startAnvilFork, runAssertions, buildSimulationResult, allPassed } from "@intentguard/simulator";
-import { encodeOrderData, encodeOrder, orderIdOf, signAttestation, attestorAccount } from "@intentguard/attestor";
+import { encodeOrderData, orderIdOf, signAttestation, attestorAccount, OnchainOrder } from "@intentguard/attestor";
 import { DEMO_QUOTES } from "./demoQuotes.js";
+import { ApiEnv, DEFAULT_RPC, sabotageEnabled } from "./env.js";
+import { offlineReview, usdToUsdcUnits } from "./fallback.js";
+import { AddressParamSchema, DecideBodySchema, SabotageBodySchema, formatIssues } from "./validation.js";
 
-export interface ApiEnv {
-  MAINNET_RPC?: string;
-  BASE_SEPOLIA_RPC?: string;
-  GEMINI_API_KEY?: string;
-  ATTESTOR_PRIVATE_KEY?: string;
-  VAULT_ADDRESS?: string;
-  REPLAY?: boolean;
+export type { ApiEnv } from "./env.js";
+export { envFromProcess } from "./env.js";
+
+/** ERC-7683 orderDataType for IntentGuard orders. */
+export const ORDER_DATA_TYPE = keccak256(toHex("IntentGuardV1"));
+
+/** Placeholder demo accounts used in the order the pipeline attests to. */
+const DEMO_USER = ("0x" + "66".repeat(20)) as Address;
+const DEMO_RECIPIENT = ("0x" + "77".repeat(20)) as Address;
+const ZERO_HASH = ("0x" + "00".repeat(32)) as `0x${string}`;
+
+/** In-memory journal store, bounded so a long-running process cannot grow without limit. */
+export const MAX_JOURNALS = 500;
+const journals = new Map<string, DecisionJournal>();
+
+function storeJournal(journal: DecisionJournal): void {
+  journals.set(journal.intentId, journal);
+  while (journals.size > MAX_JOURNALS) {
+    const oldest = journals.keys().next().value;
+    if (oldest === undefined) break;
+    journals.delete(oldest);
+  }
 }
 
-const journals = new Map<string, DecisionJournal>();
-const demoPositions = new Map<string, { settler: Address; protocolSlug: string; amountUsd: number; openedAt: number; tierAtOpen: 1 | 2 | 3 | 4 }>();
+let intentCounter = 0;
+function newId(prefix: string): string {
+  intentCounter = (intentCounter + 1) % 1296;
+  return `${prefix}-${Date.now().toString(36).toUpperCase()}${intentCounter.toString(36).toUpperCase().padStart(2, "0")}`;
+}
 
-function demoPolicy(): Policy {
+/** The demo user's committed policy: tier ≤ 2, fee ≤ 50bps, $10k/tx, $25k/day, 30 min deadline. */
+export function demoPolicy(now = Date.now()): Policy {
   return {
     maxRiskTier: 2,
     maxFeeBps: 50,
@@ -28,35 +51,26 @@ function demoPolicy(): Policy {
     dailyBudget: 25_000_000000n,
     minFillDeadline: 1800,
     allowedSettlersRoot: ("0x" + "ab".repeat(32)) as `0x${string}`,
-    expiry: Math.floor(Date.now() / 1000) + 365 * 86400,
+    expiry: Math.floor(now / 1000) + 365 * 86400,
   };
 }
 
-export const app = new Hono<{ Bindings: ApiEnv }>();
+function rpcClient(env: ApiEnv) {
+  return createPublicClient({ transport: http(env.BASE_SEPOLIA_RPC ?? DEFAULT_RPC) });
+}
 
-app.get("/health", (c) => c.json({ ok: true, ts: Date.now() }));
-
-/** Full decision pipeline: score → review → simulate → attest → journal. */
-app.post("/decide", async (c) => {
-  const env = c.env as ApiEnv;
-  const body = (await c.req.json().catch(() => null)) as { mandate?: string; quotes?: typeof DEMO_QUOTES; notionalUsd?: number } | null;
-  const mandate = body?.mandate ?? "Move $5,000 USDC to the best safe yield opportunity";
-  const notionalUsd = body?.notionalUsd ?? 5000;
-  const quotes = body?.quotes ?? DEMO_QUOTES;
-
-  const intentId = `INTENT-${Date.now().toString(36).toUpperCase()}`;
-  const policy = demoPolicy();
-  const journal: DecisionJournal = {
-    intentId,
+function newJournal(mandate: string, notionalUsd: number, quotesEvaluated: number, policy: Policy): DecisionJournal {
+  return {
+    intentId: newId("INTENT"),
     mandate,
     parsedConstraints: {
       asset: "USDC",
-      amount: `$${notionalUsd.toLocaleString()}`,
+      amount: `$${notionalUsd.toLocaleString("en-US")}`,
       objective: "Maximize risk-adjusted yield",
-      maxFee: "0.5%",
+      maxFee: `${(policy.maxFeeBps / 100).toFixed(2)}%`,
       maxRiskTier: String(policy.maxRiskTier),
     },
-    quotesEvaluated: quotes.length,
+    quotesEvaluated,
     profiles: [],
     proposer: null,
     redTeam: null,
@@ -71,154 +85,196 @@ app.post("/decide", async (c) => {
     createdAt: Date.now(),
     completedAt: null,
   };
-  journals.set(intentId, journal);
+}
+
+/** Pre-sign simulation on an Anvil mainnet fork. Returns false if any assertion failed. */
+async function simulate(env: ApiEnv, journal: DecisionJournal, sel: SolverQuote): Promise<boolean> {
+  if (!env.MAINNET_RPC) {
+    // No fork configured: record an explicit gap instead of pretending.
+    journal.simulation = buildSimulationResult(0n, [
+      {
+        id: "balanceDelta",
+        label: "Destination balance delta",
+        passed: true,
+        observed: "simulation skipped (no MAINNET_RPC configured)",
+      },
+    ]);
+    return true;
+  }
+  const fork = await startAnvilFork({ rpcUrl: env.MAINNET_RPC });
+  try {
+    const assertions = await runAssertions(fork, {
+      fork,
+      token: sel.tokenAddress,
+      destinationToken: sel.tokenAddress,
+      recipient: DEMO_RECIPIENT,
+      from: DEMO_USER,
+      notionalTokens: usdToUsdcUnits(sel.inputAmountUsd),
+      expectedOutputTokens: sel.expectedOutputTokens,
+      quotedSlippageBps: sel.quotedSlippageBps,
+    });
+    const blockNumber = await fork.client.getBlockNumber();
+    journal.simulation = buildSimulationResult(blockNumber, assertions);
+    return allPassed(journal.simulation);
+  } finally {
+    await fork.stop();
+  }
+}
+
+/**
+ * Build the ERC-7683 order for the selected quote and its EIP-712 risk
+ * attestation. The attestation is signed when ATTESTOR_PRIVATE_KEY and
+ * VAULT_ADDRESS are configured; otherwise it is returned unsigned ("0x").
+ */
+export async function buildAttestation(
+  env: ApiEnv,
+  sel: SolverQuote,
+  simHash: `0x${string}` = ZERO_HASH,
+): Promise<{ order: OnchainOrder; attestation: Attestation }> {
+  const nowSec = Math.floor(Date.now() / 1000);
+  const order = {
+    fillDeadline: nowSec + 3600,
+    orderDataType: ORDER_DATA_TYPE,
+    orderData: encodeOrderData({
+      user: DEMO_USER,
+      inputToken: sel.tokenAddress,
+      inputAmount: usdToUsdcUnits(sel.inputAmountUsd),
+      minOutput: sel.expectedOutputTokens,
+      destinationChainId: BigInt(sel.destinationChainId),
+      settler: sel.settler,
+      recipient: DEMO_RECIPIENT,
+      destinationData: "0x",
+    }),
+  };
+  const input = {
+    orderId: orderIdOf(order),
+    riskTier: sel.profile.tier,
+    feeBps: sel.feeBps,
+    simHash,
+    expiry: nowSec + 900,
+    nonce: 0n,
+  };
+
+  const key = env.ATTESTOR_PRIVATE_KEY;
+  const vault = env.VAULT_ADDRESS;
+  if (key && vault && AddressParamSchema.safeParse(vault).success) {
+    const attestation = await signAttestation(
+      attestorAccount(key as `0x${string}`),
+      vault as Address,
+      env.BASE_SEPOLIA_RPC ?? DEFAULT_RPC,
+      input,
+    );
+    return { order, attestation };
+  }
+  // Unsigned: no attestor key / vault configured. The vault would reject this.
+  return { order, attestation: { ...input, signature: "0x" } };
+}
+
+export const app = new Hono<{ Bindings: ApiEnv }>();
+
+app.use("*", async (c, next) => {
+  const origins = (c.env?.CORS_ORIGINS ?? "")
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean);
+  if (origins.length === 0) return next();
+  return cors({ origin: origins })(c, next);
+});
+
+app.onError((err, c) => {
+  if (err instanceof HTTPException) return err.getResponse();
+  console.error("[intentguard-api]", err);
+  return c.json({ error: "internal error" }, 500);
+});
+
+app.notFound((c) => c.json({ error: "not found" }, 404));
+
+async function readJson(c: { req: { json: () => Promise<unknown> } }): Promise<unknown> {
+  try {
+    return await c.req.json();
+  } catch {
+    return {};
+  }
+}
+
+app.get("/health", (c) => c.json({ ok: true, ts: Date.now() }));
+
+/** Full decision pipeline: score → review → simulate → attest → journal. */
+app.post("/decide", async (c) => {
+  const env: ApiEnv = c.env ?? {};
+  const parsed = DecideBodySchema.safeParse(await readJson(c));
+  if (!parsed.success) return c.json({ error: "invalid request", issues: formatIssues(parsed.error) }, 400);
+
+  const mandate = parsed.data.mandate ?? "Move $5,000 USDC to the best safe yield opportunity";
+  const notionalUsd = parsed.data.notionalUsd ?? 5000;
+  const quotes: Quote[] = parsed.data.quotes ?? DEMO_QUOTES;
+  const policy = demoPolicy();
+  const journal = newJournal(mandate, notionalUsd, quotes.length, policy);
+  storeJournal(journal);
 
   try {
     // 1. Score every route with the evidence-grounded oracle.
-    const rpc = env.BASE_SEPOLIA_RPC ?? "http://127.0.0.1:8545";
-    const client = createPublicClient({ transport: http(rpc) });
-    const solverQuotes: SolverQuote[] = [];
-    for (const q of quotes) {
-      const profile = await scoreRoute(client, { settler: q.settler, protocolSlug: q.protocolSlug });
-      solverQuotes.push({ ...q, profile });
-    }
+    const client = rpcClient(env);
+    const solverQuotes: SolverQuote[] = await Promise.all(
+      quotes.map(async (q) => ({
+        ...q,
+        profile: await scoreRoute(client, { settler: q.settler, protocolSlug: q.protocolSlug }),
+      })),
+    );
     journal.profiles = solverQuotes.map((q) => q.profile);
 
-    // 2. Adversarial review.
-    let review;
-    if (env.GEMINI_API_KEY) {
-      const model = geminiClient({ apiKey: env.GEMINI_API_KEY });
-      review = await runAdversarialReview(model, { quotes: solverQuotes, policy });
-    } else {
-      // Deterministic fallback for CI / offline demo: apply the local policy
-      // check directly and synthesize the journal entries.
-      const best = [...solverQuotes].sort((a, b) => b.expectedOutputUsd - a.expectedOutputUsd)[0];
-      review = {
-        proposer: {
-          recommendedSolverId: best.id,
-          expectedValueUsd: best.expectedOutputUsd,
-          argument: `Best expected value: ${best.solverName} at $${best.expectedOutputUsd.toFixed(2)}.`,
-          acknowledgedTradeoffs: [],
-        },
-        redTeam: {
-          objections: solverQuotes
-            .filter((q) => q.profile.tier > policy.maxRiskTier)
-            .map((q) => ({
-              severity: "critical" as const,
-              claim: `${q.solverName} exceeds the policy tier`,
-              failureChain: "Policy violation would revert on-chain",
-              evidenceSignalIds: q.profile.signals.filter((s) => s.tierContribution === q.profile.tier).map((s) => s.id),
-            })),
-          injectionAttemptsDetected: [],
-          recommendation: "reject" as const,
-        },
-        arbiter: {
-          verdict: (best.profile.tier <= policy.maxRiskTier ? "EXECUTE" : "REFUSE") as Verdict,
-          selectedSolverId: best.id,
-          reasoning: "Offline deterministic fallback (no GEMINI_API_KEY configured).",
-          upheldObjections: [],
-          dismissedObjections: [],
-        },
-        verdict: (best.profile.tier <= policy.maxRiskTier ? "EXECUTE" : "REFUSE") as Verdict,
-        selectedQuote: best,
-        localOverrideApplied: best.profile.tier > policy.maxRiskTier,
-        injectionAttempts: [],
-      };
-    }
+    // 2. Adversarial review (Gemini when configured, deterministic otherwise).
+    const review: ReviewResult = env.GEMINI_API_KEY
+      ? await runAdversarialReview(geminiClient({ apiKey: env.GEMINI_API_KEY }), { quotes: solverQuotes, policy })
+      : offlineReview(solverQuotes, policy);
     journal.proposer = review.proposer;
     journal.redTeam = review.redTeam;
     journal.arbiter = review.arbiter;
     journal.injectionAttempts = review.injectionAttempts;
     journal.localOverrideApplied = review.localOverrideApplied;
+    journal.finalVerdict = review.verdict;
 
-    // 3. Simulate before signing.
-    if (review.verdict === "EXECUTE" && review.selectedQuote) {
-      const sel = review.selectedQuote;
-      if (env.MAINNET_RPC) {
-        const fork = await startAnvilFork({ rpcUrl: env.MAINNET_RPC });
-        try {
-          const assertions = await runAssertions(fork, {
-            fork,
-            token: sel.tokenAddress,
-            destinationToken: sel.tokenAddress,
-            recipient: ("0x" + "77".repeat(20)) as Address,
-            from: ("0x" + "66".repeat(20)) as Address,
-            notionalTokens: BigInt(Math.floor(sel.inputAmountUsd * 1e6)),
-            expectedOutputTokens: sel.expectedOutputTokens,
-            quotedSlippageBps: sel.quotedSlippageBps,
-          });
-          const blockNumber = await fork.client.getBlockNumber();
-          journal.simulation = buildSimulationResult(blockNumber, assertions);
-          if (!allPassed(journal.simulation)) {
-            journal.finalVerdict = "REFUSE";
-            journal.error = "simulation assertion failed";
-          }
-        } finally {
-          await fork.stop();
-        }
+    // 3. Simulate before signing; 4. attest only if EXECUTE survives simulation.
+    if (review.verdict === "EXECUTE") {
+      if (!review.selectedQuote) {
+        journal.finalVerdict = "REFUSE";
+        journal.error = "EXECUTE verdict without a selected quote";
+      } else if (!(await simulate(env, journal, review.selectedQuote))) {
+        journal.finalVerdict = "REFUSE";
+        journal.error = "simulation assertion failed";
       } else {
-        // No fork configured: simulate against a local anvil with mock tokens is
-        // not possible here; record an explicit gap instead of pretending.
-        journal.simulation = buildSimulationResult(0n, [
-          { id: "balanceDelta", label: "Destination balance delta", passed: true, observed: "simulation skipped (no MAINNET_RPC configured)" },
-        ]);
+        const simHash = (journal.simulation?.simHash ?? ZERO_HASH) as `0x${string}`;
+        journal.attestation = (await buildAttestation(env, review.selectedQuote, simHash)).attestation;
       }
-    }
-
-    // 4. Attest + submit (openWithPolicy) — only if EXECUTE survived.
-    if (journal.finalVerdict !== "REFUSE" && review.verdict === "EXECUTE" && review.selectedQuote) {
-      const sel = review.selectedQuote;
-      const orderData = encodeOrderData({
-        user: ("0x" + "66".repeat(20)) as Address,
-        inputToken: sel.tokenAddress,
-        inputAmount: BigInt(Math.floor(sel.inputAmountUsd * 1e6)),
-        minOutput: sel.expectedOutputTokens,
-        destinationChainId: BigInt(sel.destinationChainId),
-        settler: sel.settler,
-        recipient: ("0x" + "77".repeat(20)) as Address,
-        destinationData: "0x",
-      });
-      const order = {
-        fillDeadline: Math.floor(Date.now() / 1000) + 3600,
-        orderDataType: ("0x" + "IntentGuardV1".padEnd(64, "0")) as `0x${string}`,
-        orderData,
-      };
-      const att = {
-        orderId: orderIdOf(order),
-        riskTier: sel.profile.tier,
-        feeBps: sel.feeBps,
-        simHash: (journal.simulation?.simHash ?? ("0x" + "00".repeat(32))) as `0x${string}`,
-        expiry: Math.floor(Date.now() / 1000) + 900,
-        nonce: 0n,
-      };
-      journal.attestation = { ...att, signature: "0x" as `0x${string}` };
-      journal.finalVerdict = "EXECUTE";
-    } else {
-      journal.finalVerdict = review.verdict === "EXECUTE" ? "REFUSE" : review.verdict;
     }
 
     journal.completedAt = Date.now();
     return c.json(toJsonSafe(journal));
   } catch (e) {
-    journal.error = (e as Error).message;
+    console.error("[intentguard-api] /decide failed", e);
+    journal.finalVerdict = "REFUSE";
+    journal.error = e instanceof Error ? e.message : String(e);
     journal.completedAt = Date.now();
     return c.json(toJsonSafe(journal), 500);
   }
 });
 
-/** Dev-only sabotage endpoint: POST a forged decision, bypassing the agents. */
+/** Dev-only sabotage endpoint: records a forged EXECUTE decision that bypasses the agents. */
 app.post("/sabotage", async (c) => {
-  const env = c.env as ApiEnv;
-  const body = (await c.req.json().catch(() => null)) as { routeId?: string; tier?: 1 | 2 | 3 | 4 } | null;
-  const routeId = body?.routeId ?? "route-c";
-  const tier = body?.tier ?? 4;
+  const env: ApiEnv = c.env ?? {};
+  if (!sabotageEnabled(env)) return c.json({ error: "sabotage endpoint disabled" }, 403);
+
+  const parsed = SabotageBodySchema.safeParse(await readJson(c));
+  if (!parsed.success) return c.json({ error: "invalid request", issues: formatIssues(parsed.error) }, 400);
+  const routeId = parsed.data.routeId ?? "route-c";
+  const tier = parsed.data.tier ?? 4;
 
   const quote = DEMO_QUOTES.find((q) => q.id === routeId);
   if (!quote) return c.json({ error: "unknown route" }, 404);
 
-  // The forged decision: claim tier 1 and EXECUTE, skipping the agents.
+  const now = Date.now();
   const forged: DecisionJournal = {
-    intentId: `SABOTAGE-${Date.now().toString(36).toUpperCase()}`,
+    intentId: newId("SABOTAGE"),
     mandate: "FORGED DECISION (dev-only)",
     parsedConstraints: { note: "bypassed the agent pipeline entirely" },
     quotesEvaluated: 1,
@@ -233,10 +289,10 @@ app.post("/sabotage", async (c) => {
     localOverrideApplied: false,
     txHash: null,
     error: `submitted tier ${tier} for ${routeId} — the vault must revert RiskTierExceedsPolicy`,
-    createdAt: Date.now(),
-    completedAt: Date.now(),
+    createdAt: now,
+    completedAt: now,
   };
-  journals.set(forged.intentId, forged);
+  storeJournal(forged);
   return c.json(toJsonSafe(forged));
 });
 
@@ -246,17 +302,13 @@ app.get("/journal/:id", (c) => {
   return c.json(toJsonSafe(j));
 });
 
-app.get("/journals", (c) => c.json(toJsonSafe([...journals.values()])));
+app.get("/journals", (c) => c.json(toJsonSafe([...journals.values()].reverse())));
 
 app.get("/provenance/:settler", async (c) => {
-  const env = c.env as ApiEnv;
-  const rpc = env.BASE_SEPOLIA_RPC ?? "http://127.0.0.1:8545";
-  const client = createPublicClient({ transport: http(rpc) });
-  const profile = await scoreRoute(client, {
-    settler: c.req.param("settler") as Address,
-    protocolSlug: "aave",
-  });
-  return c.json({ profile, cards: provenanceCards(profile) });
+  const settler = c.req.param("settler");
+  if (!AddressParamSchema.safeParse(settler).success) return c.json({ error: "invalid settler address" }, 400);
+  const profile = await scoreRoute(rpcClient(c.env ?? {}), { settler: settler as Address, protocolSlug: "aave" });
+  return c.json(toJsonSafe({ profile, cards: provenanceCards(profile) }));
 });
 
 export default app;
