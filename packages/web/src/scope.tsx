@@ -72,7 +72,7 @@ export const ROADMAP: RoadmapItem[] = [
   },
   {
     title: "Standing enterprise mandate",
-    round2: "\"Keep treasury above 15% APY, never >20% to Tier 3, human approval above $100k\" — continuously evaluated.",
+    round2: '"Keep treasury above 15% APY, never >20% to Tier 3, human approval above $100k" — continuously evaluated.',
     provenNow: "One mandate → one enforced decision works end-to-end right now.",
   },
   {
@@ -105,12 +105,19 @@ export function ScopeToggle({ scope, onChange }: { scope: Scope; onChange: (s: S
   const on = scope === "prototype";
   return (
     <button
+      type="button"
+      role="switch"
+      aria-checked={!on}
+      aria-label="Show full product vision"
       onClick={() => onChange(on ? "vision" : "prototype")}
       className="flex items-center gap-2 rounded-lg border border-line bg-ink px-2.5 py-1.5 text-xs"
       title="Toggle between the Round 1 prototype scope and the full Round 2 product vision"
     >
       <span className={on ? "font-semibold text-ok" : "text-slate-500"}>Round 1 · Prototype</span>
-      <span className={`relative inline-block h-4 w-8 rounded-full transition-colors ${on ? "bg-ok/30" : "bg-accent/30"}`}>
+      <span
+        aria-hidden="true"
+        className={`relative inline-block h-4 w-8 rounded-full transition-colors ${on ? "bg-ok/30" : "bg-accent/30"}`}
+      >
         <span
           className={`absolute top-0.5 h-3 w-3 rounded-full transition-all ${on ? "left-0.5 bg-ok" : "left-4 bg-accent"}`}
         />
@@ -144,7 +151,8 @@ export function ScopeBanner({ scope }: { scope: Scope }) {
     <div className="rounded-xl border border-accent/30 bg-accent/5 px-5 py-3 text-sm">
       <span className="font-semibold text-accent">Full Vision · the A–Z product.</span>{" "}
       <span className="text-slate-300">
-        Dashed cards below are Round 2 — planned, not yet built. Each one stands on something the Round 1 prototype already proves.
+        Dashed cards below are Round 2 — planned, not yet built. Each one stands on something the Round 1 prototype
+        already proves.
       </span>
     </div>
   );
@@ -158,7 +166,7 @@ export function RoundTwoTeaser({ onExpand }: { onExpand: () => void }) {
         <h3 className="text-sm font-semibold uppercase tracking-wider text-accent">
           Round 2 potential — the full product
         </h3>
-        <button onClick={onExpand} className="text-xs text-accent underline">
+        <button type="button" onClick={onExpand} className="text-xs text-accent underline">
           See the roadmap →
         </button>
       </div>
@@ -170,7 +178,8 @@ export function RoundTwoTeaser({ onExpand }: { onExpand: () => void }) {
         ))}
       </div>
       <p className="mt-3 text-xs text-slate-500">
-        {BUILT.length} core capabilities are built for Round 1. {ROADMAP.length} more are mapped for the Round 2 A–Z build.
+        {BUILT.length} core capabilities are built for Round 1. {ROADMAP.length} more are mapped for the Round 2 A–Z
+        build.
       </p>
     </section>
   );
@@ -181,7 +190,9 @@ export function RoadmapView() {
   return (
     <div className="space-y-4">
       <section className="rounded-xl border border-line bg-panel p-5">
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-ok">Round 1 — built &amp; demoable now</h3>
+        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-ok">
+          Round 1 — built &amp; demoable now
+        </h3>
         <div className="grid gap-2 sm:grid-cols-2">
           {BUILT.map((b) => (
             <div key={b.title} className="rounded-lg border border-ok/25 bg-ink p-3">
@@ -197,7 +208,9 @@ export function RoadmapView() {
 
       <section className="rounded-xl border border-line bg-panel p-5">
         <h3 className="mb-1 text-sm font-semibold uppercase tracking-wider text-accent">Round 2 — the A–Z product</h3>
-        <p className="mb-3 text-xs text-slate-500">Planned, not built. Each item is anchored to what the prototype already proves.</p>
+        <p className="mb-3 text-xs text-slate-500">
+          Planned, not built. Each item is anchored to what the prototype already proves.
+        </p>
         <div className="space-y-2">
           {ROADMAP.map((r) => (
             <div key={r.title} className="rounded-lg border border-dashed border-accent/40 bg-ink p-3">
@@ -226,11 +239,7 @@ export function RoadmapView() {
               <tr key={row.layer} className="border-b border-line last:border-0">
                 <td className="py-2 pr-3 text-slate-300">{row.layer}</td>
                 <td className="py-2 pr-3">
-                  {row.real ? (
-                    <span className="text-ok">● Real</span>
-                  ) : (
-                    <span className="text-warn">○ Mocked</span>
-                  )}
+                  {row.real ? <span className="text-ok">● Real</span> : <span className="text-warn">○ Mocked</span>}
                 </td>
                 <td className="py-2 text-xs text-slate-500">{row.note}</td>
               </tr>
