@@ -2,18 +2,96 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  font-family:
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    "Segoe UI",
-    sans-serif;
+/*
+ * Design tokens. Values are bare RGB channels consumed by tailwind.config.js.
+ * Every text token is checked for WCAG AA (≥ 4.5:1) against canvas, panel and
+ * inset surfaces in both themes; the *-solid tokens are button fills that carry
+ * white text at ≥ 4.5:1.
+ */
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --c-canvas: 11 14 20; /* #0b0e14 */
+  --c-panel: 18 23 34; /* #121722 */
+  --c-inset: 13 17 25; /* #0d1119 */
+  --c-line: 37 44 60; /* #252c3c */
+  --c-line-strong: 52 62 84; /* #343e54 */
+  --c-fg: 230 235 243; /* #e6ebf3 */
+  --c-muted: 167 176 192; /* #a7b0c0 */
+  --c-subtle: 141 151 170; /* #8d97aa */
+  --c-accent: 107 157 255; /* #6b9dff */
+  --c-accent-solid: 47 111 237; /* #2f6fed */
+  --c-ok: 61 220 132; /* #3ddc84 */
+  --c-ok-solid: 21 127 67; /* #157f43 */
+  --c-warn: 255 190 92; /* #ffbe5c */
+  --c-danger: 255 107 120; /* #ff6b78 */
+  --c-danger-solid: 212 42 60; /* #d42a3c */
+  --c-teal: 94 234 212; /* #5eead4 */
 }
 
-:focus-visible {
-  outline: 2px solid #4f8cff;
-  outline-offset: 2px;
+:root[data-theme="light"] {
+  color-scheme: light;
+  --c-canvas: 244 246 250; /* #f4f6fa */
+  --c-panel: 255 255 255;
+  --c-inset: 241 244 249; /* #f1f4f9 */
+  --c-line: 220 225 234; /* #dce1ea */
+  --c-line-strong: 196 204 218; /* #c4ccda */
+  --c-fg: 15 23 42; /* #0f172a */
+  --c-muted: 70 84 103; /* #465467 */
+  --c-subtle: 90 101 120; /* #5a6578 */
+  --c-accent: 29 91 214; /* #1d5bd6 */
+  --c-accent-solid: 29 91 214;
+  --c-ok: 13 122 62; /* #0d7a3e */
+  --c-ok-solid: 13 122 62;
+  --c-warn: 154 83 0; /* #9a5300 */
+  --c-danger: 196 29 48; /* #c41d30 */
+  --c-danger-solid: 196 29 48;
+  --c-teal: 15 118 110; /* #0f766e */
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-canvas font-sans text-fg antialiased;
+    min-height: 100vh;
+  }
+
+  :focus-visible {
+    outline: 2px solid rgb(var(--c-accent));
+    outline-offset: 2px;
+  }
+
+  summary {
+    list-style: none;
+  }
+  summary::-webkit-details-marker {
+    display: none;
+  }
+
+  ::selection {
+    background: rgb(var(--c-accent) / 0.3);
+  }
+}
+
+@layer components {
+  /* Chevron that rotates when its <details> opens. */
+  .chevron {
+    @apply shrink-0 text-subtle transition-transform duration-200;
+  }
+  details[open] > summary .chevron {
+    transform: rotate(90deg);
+  }
+
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -21,6 +99,8 @@ body {
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
